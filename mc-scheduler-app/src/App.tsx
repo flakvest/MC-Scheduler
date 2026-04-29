@@ -33,6 +33,8 @@ function App() {
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
+  const [newPositionCode, setNewPositionCode] = useState('')
+  const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
 
   const scheduleData = useMemo(() => ({
     ...data,
@@ -123,6 +125,47 @@ function App() {
     setNewOperatorUnavailable([])
     setNewOperatorPermissions({})
     setStatusMessage(`${callsign} added.`)
+  }
+
+  const addPosition = () => {
+    const positionCode = newPositionCode.trim().toUpperCase()
+
+    if (!positionCode) {
+      setStatusMessage('Enter a position code before adding a position.')
+      return
+    }
+
+    if (positionCode === 'EXD') {
+      setStatusMessage('EXD already exists and stays linked to ALE.')
+      return
+    }
+
+    if (data.positions.some((position) => position.name === positionCode)) {
+      setStatusMessage(`${positionCode} already exists.`)
+      return
+    }
+
+    setData((current) => ({
+      ...current,
+      positions: [
+        ...current.positions,
+        {
+          name: positionCode,
+          shortName: positionCode,
+          requiresALE: newPositionRequiresAle,
+        },
+      ],
+      operators: current.operators.map((operator) => ({
+        ...operator,
+        positionPermissions: {
+          ...operator.positionPermissions,
+          [positionCode]: newPositionRequiresAle ? operator.ale : true,
+        },
+      })),
+    }))
+    setNewPositionCode('')
+    setNewPositionRequiresAle(false)
+    setStatusMessage(`${positionCode} position added.`)
   }
 
   return (
@@ -294,8 +337,28 @@ function App() {
             <section className="data-panel" id="positions">
               <div className="panel-heading">
                 <h3>Positions</h3>
-                <button type="button">Add</button>
               </div>
+              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); addPosition() }}>
+                <label>
+                  Short code
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={newPositionCode}
+                    onChange={(event) => setNewPositionCode(event.target.value)}
+                    placeholder="ALT"
+                  />
+                </label>
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={newPositionRequiresAle}
+                    onChange={(event) => setNewPositionRequiresAle(event.target.checked)}
+                  />
+                  Requires ALE
+                </label>
+                <button type="submit" className="primary">Add Position</button>
+              </form>
               <div className="table-list">
                 {scheduleData.positions.map((position) => (
                   <div className="table-row" key={position.name}>

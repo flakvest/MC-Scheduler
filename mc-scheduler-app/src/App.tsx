@@ -67,6 +67,7 @@ function App() {
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstWeekday = new Date(year, month - 1, 1).getDay()
+  const trailingBlankDays = (7 - ((firstWeekday + daysInMonth) % 7)) % 7
   const currentPrefix = monthPrefix(year, month)
   const scheduleText = useMemo(() => generateScheduleText(scheduleData, year, month), [month, scheduleData, year])
   const openShiftCount = Object.entries(scheduleData.schedule)
@@ -705,6 +706,9 @@ function App() {
                   </article>
                 )
               })}
+              {Array.from({ length: trailingBlankDays }).map((_, index) => (
+                <div className="calendar-day muted" key={`trailing-empty-${index}`} />
+              ))}
             </div>
           </div>
 

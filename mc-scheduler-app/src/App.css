@@ -609,7 +609,7 @@ select {
   .calendar-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    grid-template-rows: auto repeat(6, minmax(0.82in, auto));
+    grid-template-rows: auto;
     grid-auto-rows: minmax(0.82in, auto);
     align-content: start;
     gap: 0;

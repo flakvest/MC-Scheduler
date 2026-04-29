@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MARS Message Center Scheduler v1.66</title>
+    <style>
+        /* --- UI STYLES --- */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }
+        h1, h2, h3 { color: #2c3e50; margin-bottom: 10px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+        th { background: #ecf0f1; }
+        
+        .control-panel { background: #fff; padding: 20px; border-radius: 8px; border-left: 5px solid #3498db; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .constraint-box { background: #fdfefe; border: 1px dashed #bdc3c7; padding: 15px; margin-top: 10px; border-radius: 5px; }
+        
+        button { margin: 5px; padding: 10px 15px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; transition: 0.2s; }
+        button:hover { opacity: 0.8; }
+        
+        .btn-update-stale { background-color: #f1c40f !important; color: black; border: 2px solid #d4ac0d; }
+        .btn-update-current { background-color: #2ecc71 !important; color: white; border: 1px solid #27ae60; }
+        .btn-action { background-color: #3498db; color: white; border: none; }
+        .btn-danger { background-color: #e74c3c; color: white; border: none; }
+        .btn-grid { background-color: #8e44ad; color: white; border: none; }
+
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 20px 0; }
+        .day-cell { border: 1px solid #ccc; padding: 8px; min-height: 180px; background: #fff; font-size: 0.85em; position: relative; border-radius: 4px; }
+        .no-coverage { background: #dfe6e9; opacity: 0.6; }
+        
+        select, input[type="text"], input[type="number"], input[type="date"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        textarea { width: 100%; height: 200px; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; margin-top: 10px; white-space: pre; }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 25px; border-radius: 8px; width: 520px; max-width: 95%; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .day-checkboxes { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 10px; }
+
+        .locked-label { color: #d35400; font-style: italic; background: #fef5e7; padding: 2px 5px; border-radius: 3px; font-size: 0.85em; }
+
+        /* --- PRINT GRID STYLES --- */
+        #printableGrid { display: none; width: 100%; height: 100%; }
+        .grid-header { text-align: center; margin-bottom: 5px; }
+        .print-grid { display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; border-top: 1px solid #000; border-left: 1px solid #000; background: #000; gap: 1px; }
+        .print-day-label { text-align: center; font-weight: bold; background: #eee; padding: 2px; font-size: 0.8em; border-bottom: 1px solid #000; }
+        .print-cell { background: #fff; min-height: 14vh; padding: 3px; position: relative; overflow: hidden; }
+        .print-cell.tail { background: #f9f9f9; color: #bbb; }
+        .print-day-num { font-weight: bold; font-size: 1em; display: block; margin-bottom: 2px; border-bottom: 1px solid #eee; }
+        .print-pos-line { font-size: 0.75em; line-height: 1.1; margin-bottom: 1px; white-space: nowrap; }
+        .print-no-cov { color: #888; font-style: italic; font-size: 0.7em; text-align: center; margin-top: 15px; }
+
+        @media print {
+            @page { size: landscape; margin: 0.3cm; }
+            body > * { display: none !important; }
+            #printableGrid { display: block !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>MARS Message Center Scheduler v1.66</h1>
+
+    <div class="control-panel">
+        <label>Year: <input type="number" id="year" style="width: 80px;" oninput="markCalendarStale()"></label>
+        <label>Month: 
+            <select id="month" style="width: 120px;" onchange="markCalendarStale()">
+                <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+                <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+                <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+                <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+            </select>
+        </label>
+        <button id="btnUpdateView" onclick="renderCalendar()" class="btn-update-stale">Update / Refresh View</button>
+        <button onclick="archivePreviousMonth()" style="background:#7f8c8d; color:white;">📦 Archive Prev Month</button>
+        <button onclick="clearMonthAssignments()" class="btn-danger">Clear This Month</button>
+
+        <div class="constraint-box">
+            <strong>Smart-Assign Constraints:</strong><br>
+            Max Shifts: <select id="maxShifts">
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                <option value="4">4</option><option value="5" selected>5</option><option value="10">10</option>
+            </select>
+            | <label><input type="checkbox" id="preventBackToBack" checked> No Back-to-Back</label>
+            | <label><input type="checkbox" id="limitWeekly" checked> Max 2 Shifts / Week</label>
+            <br><br>
+            <button onclick="autoAssignSmart()" class="btn-action">🚀 Run Smart Auto-Assign</button>
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 20px;">
+        <div style="flex: 1;">
+            <h3>Positions</h3>
+            <table id="positionsTable"><thead><tr><th>Short Code</th><th>ALE?</th><th>Edit</th></tr></thead><tbody></tbody></table>
+            <button onclick="openPositionModal()">+ Add Position</button>
+        </div>
+        <div style="flex: 1;">
+            <h3>Operators</h3>
+            <table id="operatorsTable"><thead><tr><th>Callsign</th><th>ALE?</th><th>Edit</th></tr></thead><tbody></tbody></table>
+            <button onclick="openOperatorModal()">+ Add Operator</button>
+        </div>
+    </div>
+
+    <h2 id="calendarTitle">Calendar Grid</h2>
+    <div id="calendar" class="calendar-grid"></div>
+
+    <div style="display: flex; gap: 20px;">
+        <div style="flex: 1;">
+            <h3>Stats & Vacations</h3>
+            <table id="countsTable"><thead><tr><th>Callsign</th><th>Shifts</th></tr></thead><tbody></tbody></table>
+            <select id="vacOperator" style="width: 150px;"></select>
+            <button onclick="openVacationModal()">+ Add Vacation</button>
+            <ul id="vacationList" style="font-size: 0.85em; margin-top: 10px;"></ul>
+        </div>
+        <div style="flex: 2;">
+            <h3>Calendar Tools</h3>
+            <button onclick="generateAscii()">Preview Text</button>
+            <button onclick="printGridCalendar()" class="btn-grid">🖨️ Print Calendar</button>
+            <button onclick="downloadAscii()">Save .txt</button>
+            <textarea id="asciiOutput" readonly></textarea>
+        </div>
+    </div>
+
+    <hr>
+    <button onclick="exportData()">Full Backup</button>
+    <button onclick="document.getElementById('importFile').click()">Restore</button>
+    <button onclick="clearEverything()" class="btn-danger">Factory Reset</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this.files[0])">
+
+    <div id="printableGrid"></div>
+
+    <div id="operatorModal" class="modal">
+        <div class="modal-content">
+            <h3>Operator Setup</h3>
+            <label>Callsign: <input type="text" id="opCallsign"></label><br><br>
+            <label style="background: #eaf2f8; padding: 12px; border-radius: 5px; display: block; border: 1px solid #3498db;">
+                <input type="checkbox" id="opAle" onchange="redrawPositionPermissions()"> 
+                <strong>ALE Capable (Locks EXD Status)</strong>
+            </label>
+            <hr>
+            <strong>Allowable Positions (Short Codes):</strong>
+            <div id="opPositionsCheckboxes" style="margin: 10px 0; border:1px solid #ccc; padding: 10px; background: #fff;"></div>
+            
+            <strong>Unavailable Days of Week:</strong>
+            <div class="day-checkboxes">
+                <label><input type="checkbox" class="unavail-day" data-day="0"> Su</label>
+                <label><input type="checkbox" class="unavail-day" data-day="1"> Mo</label>
+                <label><input type="checkbox" class="unavail-day" data-day="2"> Tu</label>
+                <label><input type="checkbox" class="unavail-day" data-day="3"> We</label>
+                <label><input type="checkbox" class="unavail-day" data-day="4"> Th</label>
+                <label><input type="checkbox" class="unavail-day" data-day="5"> Fr</label>
+                <label><input type="checkbox" class="unavail-day" data-day="6"> Sa</label>
+            </div>
+            
+            <div style="text-align: right; margin-top: 20px;">
+                <button onclick="saveOperator()" class="btn-action">Save</button>
+                <button onclick="closeModal('operatorModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="positionModal" class="modal"><div class="modal-content">
+        <h3>Position Setup</h3>
+        <label>Short Name: <input type="text" id="posShort" maxlength="3"></label><br><br>
+        <label><input type="checkbox" id="posRequiresALE"> Requires ALE</label>
+        <div style="text-align: right; margin-top: 20px;"><button onclick="savePosition()" class="btn-action">Save</button><button onclick="closeModal('positionModal')">Cancel</button></div>
+    </div></div>
+
+    <div id="vacationModal" class="modal"><div class="modal-content">
+        <h3>Add Vacation</h3>
+        <label>Start: <input type="date" id="vacStart"></label><br><br>
+        <label>End: <input type="date" id="vacEnd"></label>
+        <div style="text-align: right; margin-top: 20px;"><button onclick="saveVacation()" class="btn-action">Save</button><button onclick="closeModal('vacationModal')">Cancel</button></div>
+    </div></div>
+
+    <script>
+        // --- DATA INIT & REPAIR ---
+        let operators = JSON.parse(localStorage.getItem('operators') || '[]');
+        let vacations = JSON.parse(localStorage.getItem('vacations') || '{}');
+        let schedule = JSON.parse(localStorage.getItem('schedule') || '{}');
+        
+        const POS_EXD = "EXD";
+        const POS_DW = "DW";
+        const POS_DR = "DR";
+
+        let positions = JSON.parse(localStorage.getItem('positions') || `[{"name":"${POS_EXD}","shortName":"${POS_EXD}","requiresALE":true},{"name":"${POS_DW}","shortName":"${POS_DW}","requiresALE":false},{"name":"${POS_DR}","shortName":"${POS_DR}","requiresALE":false}]`);
+
+        function sanitizeData() {
+            let changed = false;
+            operators.forEach(op => {
+                if (op.canBIGTOPDELTA !== undefined) { op.canEXD = op.canBIGTOPDELTA; delete op.canBIGTOPDELTA; changed = true; }
+                positions.forEach(p => {
+                    const key = `can${p.name}`;
+                    if (op[key] === undefined) { op[key] = (p.name === 'EXD') ? op.ale : true; changed = true; }
+                });
+                // Ensure unavailable array exists
+                if (!op.unavailable) { op.unavailable = []; changed = true; }
+            });
+            Object.keys(schedule).forEach(date => {
+                const day = schedule[date];
+                if (day.bigtopdelta && !day.exd) { day.exd = day.bigtopdelta; delete day.bigtopdelta; changed = true; }
+                Object.keys(day).forEach(key => { if (key !== key.toLowerCase()) { day[key.toLowerCase()] = day[key]; delete day[key]; changed = true; } });
+            });
+            if (changed) saveData();
+        }
+
+        // --- SMART AUTO ASSIGN ---
+        function autoAssignSmart() {
+            const year = document.getElementById('year').value, month = String(document.getElementById('month').value).padStart(2,'0'), prefix = `${year}-${month}`;
+            const max = parseInt(document.getElementById('maxShifts').value), noB2B = document.getElementById('preventBackToBack').checked, limitWeekly = document.getElementById('limitWeekly').checked;
+            if (!confirm(`Run smart assignment for ${prefix}?`)) return;
+            let assignedCount = 0, blockedCount = 0;
+            const rankedPositions = [...positions].sort((a,b) => (b.requiresALE ? 1 : -1));
+            const daysInMonth = new Date(year, parseInt(month), 0).getDate();
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${prefix}-${String(d).padStart(2,'0')}`;
+                if (!schedule[dateStr] || !schedule[dateStr].coverage) continue;
+                rankedPositions.forEach(pos => {
+                    const key = pos.name.toLowerCase();
+                    if (schedule[dateStr][key]) return; 
+                    let candidates = operators.filter(op => {
+                        if (!isAvailable(op.callsign, dateStr) || (pos.requiresALE && !op.ale) || op[`can${pos.name}`] === false || Object.values(schedule[dateStr]).includes(op.callsign) || getShiftCount(op.callsign, prefix) >= max) return false;
+                        if (noB2B) { 
+                            let dateObj = new Date(dateStr + 'T00:00:00');
+                            let prev = new Date(dateObj); prev.setDate(prev.getDate()-1); 
+                            if (workedOnDate(op.callsign, prev.toISOString().split('T')[0])) return false; 
+                        }
+                        if (limitWeekly && getWeeklyShiftCount(op.callsign, dateStr) >= 2) return false;
+                        return true;
+                    });
+                    candidates.sort((a, b) => getShiftCount(a.callsign, prefix) - getShiftCount(b.callsign, prefix));
+                    if (candidates.length > 0) { schedule[dateStr][key] = candidates[0].callsign; assignedCount++; }
+                    else { blockedCount++; }
+                });
+            }
+            saveData(); renderCalendar();
+            alert(`SUCCESS: Automated logic finished.\nShifts Filled: ${assignedCount}\nUnfillable: ${blockedCount}`);
+        }
+
+        // --- MODAL PERMISSIONS ---
+        function redrawPositionPermissions() {
+            const aleStatus = document.getElementById('opAle').checked;
+            const container = document.getElementById('opPositionsCheckboxes');
+            const currentPrefs = {};
+            positions.forEach(p => { const el = document.getElementById(`chk_${p.name}`); if (el) currentPrefs[p.name] = el.checked; });
+            let html = '';
+            positions.forEach(p => {
+                let isChecked = (p.name === POS_EXD) ? aleStatus : (currentPrefs[p.name] !== undefined ? currentPrefs[p.name] : true);
+                let isDisabled = (p.name === POS_EXD);
+                html += `<div style="margin-bottom:5px;"><input type="checkbox" id="chk_${p.name}" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}> 
+                         <label style="${isDisabled ? 'color:#888' : 'font-weight:bold'}">${p.shortName} ${isDisabled ? '<span class="locked-label">🔒 ALE Linked</span>' : ''}</label></div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        function openOperatorModal(i=-1) {
+            currentEditIndex = i;
+            const op = i===-1 ? {callsign:'', ale:false, unavailable:[]} : operators[i];
+            document.getElementById('opCallsign').value = op.callsign;
+            document.getElementById('opAle').checked = op.ale;
+            redrawPositionPermissions();
+            if (i !== -1) { 
+                positions.forEach(p => { const el = document.getElementById(`chk_${p.name}`); if (el && p.name !== POS_EXD) el.checked = op[`can${p.name}`] !== false; }); 
+            }
+            
+            // Restore unavailable checkboxes
+            document.querySelectorAll('.unavail-day').forEach(cb => {
+                cb.checked = op.unavailable ? op.unavailable.includes(parseInt(cb.dataset.day)) : false;
+            });
+            
+            document.getElementById('operatorModal').style.display = 'flex';
+        }
+
+        function saveOperator() {
+            const cs = document.getElementById('opCallsign').value.trim().toUpperCase(); if(!cs) return;
+            const aleStatus = document.getElementById('opAle').checked;
+            const op = { callsign: cs, ale: aleStatus, unavailable: [] };
+            
+            // Save unavailable days from restored checkboxes
+            document.querySelectorAll('.unavail-day:checked').forEach(cb => op.unavailable.push(parseInt(cb.dataset.day)));
+            
+            positions.forEach(p => { if (p.name === POS_EXD) op.canEXD = aleStatus; else { const chk = document.getElementById(`chk_${p.name}`); op[`can${p.name}`] = chk ? chk.checked : true; } });
+            if(currentEditIndex===-1) operators.push(op); else operators[currentEditIndex] = op;
+            saveData(); closeModal('operatorModal');
+        }
+
+        // --- CORE UI ---
+        function renderCalendar() {
+            markCalendarCurrent();
+            const year = parseInt(document.getElementById('year').value), monthIdx = parseInt(document.getElementById('month').value) - 1;
+            const container = document.getElementById('calendar'); container.innerHTML = '';
+            ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => { container.innerHTML += `<div style="text-align:center; font-weight:bold; background:#eee; padding:5px; border:1px solid #ccc;">${d}</div>`; });
+            const firstDay = new Date(year, monthIdx, 1).getDay();
+            for(let i=0; i<firstDay; i++) container.innerHTML += `<div></div>`;
+            const daysInMonth = new Date(year, monthIdx+1, 0).getDate();
+            for(let d=1; d<=daysInMonth; d++) {
+                const dateStr = `${year}-${String(monthIdx+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                if (!schedule[dateStr]) schedule[dateStr] = { coverage: (new Date(year, monthIdx, d).getDay() % 6 !== 0) };
+                const dayData = schedule[dateStr], cell = document.createElement('div');
+                cell.className = `day-cell ${dayData.coverage ? '' : 'no-coverage'}`;
+                let html = `<strong>${d}</strong> <input type="checkbox" ${dayData.coverage?'checked':''} onchange="toggleCoverage('${dateStr}', this.checked)">`;
+                if (dayData.coverage) {
+                    positions.forEach(pos => {
+                        const assigned = dayData[pos.name.toLowerCase()] || "";
+                        html += `<div style="margin-top:4px;">${pos.shortName}: <select onchange="assignOp('${dateStr}', '${pos.name}', this.value)" style="width:80px; font-size:0.85em;"><option value="">-</option>`;
+                        operators.forEach(op => { if (isAvailable(op.callsign, dateStr) && (op[`can${pos.name}`] !== false) && (!pos.requiresALE || op.ale)) html += `<option value="${op.callsign}" ${assigned===op.callsign?'selected':''}>${op.callsign}</option>`; });
+                        html += `</select></div>`;
+                    });
+                }
+                cell.innerHTML = html; container.appendChild(cell);
+            }
+            updateStats();
+        }
+
+        // --- HELPERS ---
+        function workedOnDate(callsign, dateStr) { return schedule[dateStr] ? positions.some(p => schedule[dateStr][p.name.toLowerCase()] === callsign) : false; }
+        function getShiftCount(callsign, prefix) { let count = 0; Object.keys(schedule).forEach(k => { if(k.startsWith(prefix)) positions.forEach(p => { if(schedule[k][p.name.toLowerCase()] === callsign) count++; }); }); return count; }
+        function getWeeklyShiftCount(callsign, dateStr) {
+            let count = 0, current = new Date(dateStr + 'T00:00:00');
+            for (let i = -3; i <= 3; i++) { let d = new Date(current); d.setDate(d.getDate() + i); if (workedOnDate(callsign, d.toISOString().split('T')[0])) count++; }
+            return count;
+        }
+        function isAvailable(callsign, dateStr) {
+            const op = operators.find(o => o.callsign === callsign); if (!op) return false;
+            const date = new Date(dateStr + 'T00:00:00'); 
+            // Restored unavailable day-of-week check
+            if (op.unavailable && op.unavailable.includes(date.getDay())) return false;
+            if (vacations[callsign]) { for (const v of vacations[callsign]) { if (dateStr >= v.start && dateStr <= v.end) return false; } }
+            return true;
+        }
+        function toggleCoverage(dateStr, isActive) { schedule[dateStr].coverage = isActive; if (!isActive) positions.forEach(p => delete schedule[dateStr][p.name.toLowerCase()]); saveData(); renderCalendar(); }
+        function assignOp(dateStr, posName, callsign) { schedule[dateStr][posName.toLowerCase()] = callsign; saveData(); updateStats(); }
+        function saveData() { localStorage.setItem('operators', JSON.stringify(operators)); localStorage.setItem('vacations', JSON.stringify(vacations)); localStorage.setItem('schedule', JSON.stringify(schedule)); localStorage.setItem('positions', JSON.stringify(positions)); refreshUI(); }
+        function refreshUI() {
+            const ot = document.querySelector('#operatorsTable tbody'); ot.innerHTML = '';
+            operators.forEach((op, i) => { ot.innerHTML += `<tr><td>${op.callsign}</td><td>${op.ale?'Y':'N'}</td><td><button onclick="openOperatorModal(${i})">Edit</button></td></tr>`; });
+            const pt = document.querySelector('#positionsTable tbody'); pt.innerHTML = '';
+            positions.forEach((p, i) => { pt.innerHTML += `<tr><td>${p.shortName}</td><td>${p.requiresALE?'Y':'N'}</td><td><button onclick="openPositionModal(${i})">Edit</button></td></tr>`; });
+            const sel = document.getElementById('vacOperator'); sel.innerHTML = '<option value="">Select Op...</option>';
+            operators.forEach(op => sel.innerHTML += `<option>${op.callsign}</option>`);
+            updateStats();
+        }
+        function updateStats() {
+            const prefix = `${document.getElementById('year').value}-${String(document.getElementById('month').value).padStart(2,'0')}`;
+            const tbody = document.querySelector('#countsTable tbody'); tbody.innerHTML = '';
+            operators.sort((a,b) => a.callsign.localeCompare(b.callsign)).forEach(op => { const c = getShiftCount(op.callsign, prefix); if (c > 0) tbody.innerHTML += `<tr><td>${op.callsign}</td><td>${c}</td></tr>`; });
+            const ul = document.getElementById('vacationList'); ul.innerHTML = '';
+            Object.keys(vacations).forEach(op => { vacations[op].forEach((v, i) => { ul.innerHTML += `<li>${op}: ${v.start} to ${v.end} <button onclick="deleteVacation('${op}',${i})" style="padding:0 4px; font-size:10px;">X</button></li>`; }); });
+        }
+        function deleteVacation(op, i) { vacations[op].splice(i,1); saveData(); }
+        function archivePreviousMonth() {
+            const cm = parseInt(document.getElementById('month').value), cy = parseInt(document.getElementById('year').value);
+            let am = cm - 1, ay = cy; if (am === 0) { am = 12; ay--; }
+            const prefix = `${ay}-${String(am).padStart(2,'0')}`, toArchive = {};
+            Object.keys(schedule).forEach(k => { if (k.startsWith(prefix)) { toArchive[k] = schedule[k]; delete schedule[k]; } });
+            if (Object.keys(toArchive).length === 0) return alert("No data.");
+            const blob = new Blob([JSON.stringify(toArchive, null, 2)], {type:'application/json'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `archive_${prefix}.json`; a.click();
+            saveData(); renderCalendar();
+        }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        function openVacationModal() { if(!document.getElementById('vacOperator').value) return alert('Select Op'); document.getElementById('vacationModal').style.display='flex'; }
+        function saveVacation() { const op = document.getElementById('vacOperator').value, s = document.getElementById('vacStart').value, e = document.getElementById('vacEnd').value; if(!s || !e) return; if(!vacations[op]) vacations[op]=[]; vacations[op].push({start:s, end:e}); saveData(); closeModal('vacationModal'); }
+        function openPositionModal(i=-1) { currentPositionEditIndex = i; const p = i===-1 ? {name:'', shortName: '', requiresALE:false} : positions[i]; document.getElementById('posShort').value = p.shortName; document.getElementById('posRequiresALE').checked = p.requiresALE; document.getElementById('positionModal').style.display='flex'; }
+        function savePosition() { let sh = document.getElementById('posShort').value.toUpperCase().trim(); if(!sh) return; const p = {name: sh, shortName: sh, requiresALE: document.getElementById('posRequiresALE').checked}; if(currentPositionEditIndex===-1) positions.push(p); else positions[currentPositionEditIndex] = p; saveData(); closeModal('positionModal'); }
+        function clearMonthAssignments() { if(!confirm("Clear month?")) return; const prefix = `${document.getElementById('year').value}-${String(document.getElementById('month').value).padStart(2,'0')}`; Object.keys(schedule).forEach(k => { if(k.startsWith(prefix)) positions.forEach(p => delete schedule[k][p.name.toLowerCase()]); }); saveData(); renderCalendar(); }
+        function clearEverything() { if(confirm("FACTORY RESET?")) { localStorage.clear(); location.reload(); } }
+        function exportData() { const blob = new Blob([JSON.stringify({operators, vacations, schedule, positions})], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='mars_backup.json'; a.click(); }
+        function importData(f) { const r = new FileReader(); r.onload = e => { const d = JSON.parse(e.target.result); if(d.operators) operators = d.operators; if(d.positions) positions = d.positions; if(d.vacations) vacations = d.vacations; if(d.schedule) schedule = d.schedule; saveData(); location.reload(); }; r.readAsText(f); }
+        function markCalendarStale() { document.getElementById('btnUpdateView').className = 'btn-update-stale'; }
+        function markCalendarCurrent() { document.getElementById('btnUpdateView').className = 'btn-update-current'; }
+        function generateAscii() {
+            const year = document.getElementById('year').value, month = parseInt(document.getElementById('month').value);
+            const mName = new Date(year, month-1).toLocaleString('default',{month:'long'});
+            let out = `MARS SCHEDULE: ${mName.toUpperCase()} ${year}\n` + "=".repeat(30) + "\n";
+            const daysInMonth = new Date(year, month, 0).getDate();
+            for(let d=1; d<=daysInMonth; d++) {
+                const k = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                out += String(d).padStart(2,'0') + ": ";
+                if(!schedule[k] || !schedule[k].coverage) out += "--- NO COVERAGE ---\n";
+                else { let row = []; positions.forEach(p => { let op = schedule[k][p.name.toLowerCase()]; row.push(`${p.shortName}:${op ? op : 'OPEN'}`); }); out += row.join(" | ") + "\n"; }
+            }
+            document.getElementById('asciiOutput').value = out;
+        }
+        function downloadAscii() { generateAscii(); const blob = new Blob([document.getElementById('asciiOutput').value], {type:'text/plain'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download=`schedule.txt`; a.click(); }
+
+        function printGridCalendar() {
+            const year = document.getElementById('year').value, monthIdx = document.getElementById('month').value - 1;
+            const mName = new Date(year, monthIdx).toLocaleString('default', { month: 'long' });
+            let html = `<div class="grid-header"><h1>${mName.toUpperCase()} ${year} - MARS MESSAGE CENTER</h1></div><div class="print-grid">`;
+            ['SUN','MON','TUE','WED','THU','FRI','SAT'].forEach(d => { html += `<div class="print-day-label">${d}</div>`; });
+            const firstDay = new Date(year, monthIdx, 1).getDay(), daysInMonth = new Date(year, monthIdx + 1, 0).getDate(), lastMonthDays = new Date(year, monthIdx, 0).getDate();
+            for (let i = firstDay - 1; i >= 0; i--) html += `<div class="print-cell tail"><span class="print-day-num">${lastMonthDays - i}</span></div>`;
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`, data = schedule[dateStr] || { coverage: false };
+                html += `<div class="print-cell"><span class="print-day-num">${d}</span>`;
+                if (!data.coverage) html += `<div class="print-no-cov">No Coverage</div>`;
+                else positions.forEach(p => { html += `<div class="print-pos-line"><strong>${p.shortName}:</strong> ${data[p.name.toLowerCase()] || "---"}</div>`; });
+                html += `</div>`;
+            }
+            const totalCellsSoFar = firstDay + daysInMonth, remaining = (7 - (totalCellsSoFar % 7)) % 7;
+            for (let i = 1; i <= remaining; i++) { html += `<div class="print-cell tail"><span class="print-day-num">${i}</span></div>`; }
+            html += `</div>`; document.getElementById('printableGrid').innerHTML = html; window.print();
+        }
+
+        const now = new Date();
+        document.getElementById('year').value = now.getFullYear();
+        document.getElementById('month').value = now.getMonth() + 1;
+        sanitizeData(); refreshUI(); renderCalendar();
+    </script>
+</body>
+</html>

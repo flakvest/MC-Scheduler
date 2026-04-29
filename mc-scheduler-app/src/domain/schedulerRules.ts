@@ -212,6 +212,12 @@ export function assignOperator(data: SchedulerData, dateStr: IsoDate, positionCo
   const position = data.positions.find((item) => item.name === positionCode)
   if (!position) return { data, check: { allowed: false, reason: 'Position does not exist.' } }
 
+  if (!callsign) {
+    const nextData = structuredClone(data)
+    delete nextData.schedule[dateStr].assignments[positionCode]
+    return { data: nextData, check: { allowed: true } }
+  }
+
   const check = canAssignOperator(data, dateStr, position, callsign)
   if (!check.allowed) return { data, check }
 

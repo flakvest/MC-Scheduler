@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultPositions, type Operator, type SchedulerData } from './schedulerTypes'
 import {
+  assignOperator,
   canAssignOperator,
   ensureMonthSchedule,
   getShiftCount,
@@ -133,5 +134,18 @@ describe('scheduler rules', () => {
     expect(result.data.schedule['2026-04-01'].assignments.EXD).toBeTruthy()
     expect(result.data.schedule['2026-04-01'].assignments.DW).toBeTruthy()
     expect(result.data.schedule['2026-04-01'].assignments.DR).toBeTruthy()
+  })
+
+  it('can clear an existing manual assignment', () => {
+    const data = schedulerData({
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+      },
+    })
+
+    const result = assignOperator(data, '2026-04-01', 'DW', '')
+
+    expect(result.check.allowed).toBe(true)
+    expect(result.data.schedule['2026-04-01'].assignments.DW).toBeUndefined()
   })
 })

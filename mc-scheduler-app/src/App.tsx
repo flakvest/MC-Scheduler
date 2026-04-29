@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { ensureMonthSchedule, getShiftCount, smartAssign } from './domain/schedulerRules'
+import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, smartAssign } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
 import { type SchedulerData, type Weekday } from './domain/schedulerTypes'
 
@@ -168,6 +168,18 @@ function App() {
     setStatusMessage(`${positionCode} position added.`)
   }
 
+  const changeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
+    const result = assignOperator(scheduleData, dateStr, positionCode, callsign)
+
+    if (!result.check.allowed) {
+      setStatusMessage(result.check.reason || 'Assignment was blocked.')
+      return
+    }
+
+    setData(result.data)
+    setStatusMessage(callsign ? `${callsign} assigned to ${positionCode} on ${dateStr}.` : `${positionCode} cleared on ${dateStr}.`)
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Application sections">
@@ -248,7 +260,20 @@ function App() {
                     {scheduleDay.coverage ? scheduleData.positions.map((position) => (
                       <div className="assignment-row" key={position.name}>
                         <span>{position.shortName}</span>
-                        <button type="button">{scheduleDay.assignments[position.name] || 'Open'}</button>
+                        <select
+                          value={scheduleDay.assignments[position.name] || ''}
+                          onChange={(event) => changeAssignment(dateKey(year, month, day), position.name, event.target.value)}
+                        >
+                          <option value="">Open</option>
+                          {scheduleData.operators
+                            .filter((operator) =>
+                              operator.callsign === scheduleDay.assignments[position.name] ||
+                              canAssignOperator(scheduleData, dateKey(year, month, day), position, operator.callsign).allowed,
+                            )
+                            .map((operator) => (
+                              <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
+                            ))}
+                        </select>
                       </div>
                     )) : null}
                   </article>

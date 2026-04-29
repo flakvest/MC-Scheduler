@@ -1,10 +1,7 @@
 import './App.css'
+import { defaultPositions } from './domain/schedulerTypes'
 
-const positions = [
-  { code: 'EXD', aleRequired: true },
-  { code: 'DW', aleRequired: false },
-  { code: 'DR', aleRequired: false },
-]
+const positions = defaultPositions
 
 const operators = [
   { callsign: 'NCS001', ale: true, shifts: 4 },
@@ -98,8 +95,8 @@ function App() {
                       <span>{isCovered ? 'Coverage' : 'Off'}</span>
                     </div>
                     {isCovered ? positions.map((position) => (
-                      <div className="assignment-row" key={position.code}>
-                        <span>{position.code}</span>
+                      <div className="assignment-row" key={position.name}>
+                        <span>{position.shortName}</span>
                         <button type="button">Open</button>
                       </div>
                     )) : null}
@@ -133,9 +130,9 @@ function App() {
               </div>
               <div className="table-list">
                 {positions.map((position) => (
-                  <div className="table-row" key={position.code}>
-                    <strong>{position.code}</strong>
-                    <span>{position.aleRequired ? 'Requires ALE' : 'No ALE required'}</span>
+                  <div className="table-row" key={position.name}>
+                    <strong>{position.shortName}</strong>
+                    <span>{position.requiresALE ? 'Requires ALE' : 'No ALE required'}</span>
                   </div>
                 ))}
               </div>

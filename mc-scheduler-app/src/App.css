@@ -207,6 +207,37 @@ select {
   font-weight: 800;
 }
 
+.issues-panel {
+  margin-bottom: 20px;
+  border: 1px solid #e0b45b;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fff9eb;
+}
+
+.issues-panel .panel-heading span {
+  color: #7f5b19;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.issues-list {
+  display: grid;
+  gap: 8px;
+}
+
+.issue-row {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid #efd79f;
+  padding-top: 8px;
+}
+
+.issue-row span {
+  color: #5b6975;
+  font-size: 13px;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -486,6 +517,7 @@ select {
   .side-panels,
   .admin-actions,
   .settings-panel,
+  .issues-panel,
   .admin-drawer,
   .drawer-backdrop,
   .output-panel {

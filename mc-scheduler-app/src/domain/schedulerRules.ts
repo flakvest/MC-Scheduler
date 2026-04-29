@@ -20,11 +20,18 @@ export type SmartAssignResult = {
   data: SchedulerData
   assignedCount: number
   blockedCount: number
+  issues: AssignmentIssue[]
 }
 
 export type AssignmentCheck = {
   allowed: boolean
   reason?: string
+}
+
+export type AssignmentIssue = {
+  date: IsoDate
+  position: PositionCode
+  reason: string
 }
 
 const monthPrefix = (year: number, month: number) =>
@@ -49,6 +56,22 @@ const getPositionPermission = (operator: Operator, position: Position) => {
 
 const getAssignmentsForDay = (schedule: Schedule, dateStr: IsoDate) =>
   Object.values(schedule[dateStr]?.assignments ?? {})
+
+const summarizeBlockedReasons = (
+  data: SchedulerData,
+  dateStr: IsoDate,
+  position: Position,
+  options: SmartAssignOptions,
+) => {
+  if (data.operators.length === 0) return 'No operators exist.'
+
+  const reasons = data.operators.map((operator) =>
+    canAssignOperator(data, dateStr, position, operator.callsign, options).reason ?? 'Unknown reason.',
+  )
+
+  const uniqueReasons = [...new Set(reasons)]
+  return uniqueReasons.length === 1 ? uniqueReasons[0] : uniqueReasons.join(' ')
+}
 
 export function isCoverageDay(date: Date) {
   return date.getDay() % 6 !== 0
@@ -174,6 +197,7 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
 
   let assignedCount = 0
   let blockedCount = 0
+  const issues: AssignmentIssue[] = []
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dateStr = isoDateForMonthDay(options.year, options.month, day)
@@ -193,6 +217,11 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
 
       if (candidates.length === 0) {
         blockedCount += 1
+        issues.push({
+          date: dateStr,
+          position: position.shortName,
+          reason: summarizeBlockedReasons(nextData, dateStr, position, options),
+        })
         return
       }
 
@@ -205,7 +234,34 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
     data: nextData,
     assignedCount,
     blockedCount,
+    issues,
   }
+}
+
+export function findOpenAssignmentIssues(data: SchedulerData, options: SmartAssignOptions): AssignmentIssue[] {
+  const schedule = ensureMonthSchedule(data.schedule, options.year, options.month)
+  const nextData = { ...data, schedule }
+  const daysInMonth = new Date(options.year, options.month, 0).getDate()
+  const issues: AssignmentIssue[] = []
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dateStr = isoDateForMonthDay(options.year, options.month, day)
+    const scheduleDay = nextData.schedule[dateStr]
+
+    if (!scheduleDay?.coverage) continue
+
+    nextData.positions.forEach((position) => {
+      if (scheduleDay.assignments[position.name]) return
+
+      issues.push({
+        date: dateStr,
+        position: position.shortName,
+        reason: summarizeBlockedReasons(nextData, dateStr, position, options),
+      })
+    })
+  }
+
+  return issues
 }
 
 export function assignOperator(data: SchedulerData, dateStr: IsoDate, positionCode: PositionCode, callsign: Callsign) {

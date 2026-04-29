@@ -4,6 +4,7 @@ import {
   assignOperator,
   canAssignOperator,
   ensureMonthSchedule,
+  findOpenAssignmentIssues,
   getShiftCount,
   getWeeklyShiftCount,
   isOperatorAvailable,
@@ -135,6 +136,53 @@ describe('scheduler rules', () => {
     expect(result.data.schedule['2026-04-01'].assignments.EXD).toBeTruthy()
     expect(result.data.schedule['2026-04-01'].assignments.DW).toBeTruthy()
     expect(result.data.schedule['2026-04-01'].assignments.DR).toBeTruthy()
+    expect(result.issues.length).toBeGreaterThanOrEqual(0)
+  })
+
+  it('reports unfilled assignment issues when rules are too tight', () => {
+    const data = schedulerData({
+      operators: [operator('ALPHA', true)],
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+        '2026-04-02': { coverage: true, assignments: {} },
+      },
+    })
+
+    const result = smartAssign(data, {
+      year: 2026,
+      month: 4,
+      maxShifts: 1,
+      preventBackToBack: true,
+      limitWeekly: true,
+    })
+
+    expect(result.blockedCount).toBeGreaterThan(0)
+    expect(result.issues[0].date).toBeTruthy()
+    expect(result.issues[0].position).toBeTruthy()
+    expect(result.issues[0].reason).toBeTruthy()
+  })
+
+  it('finds currently open assignment issues', () => {
+    const data = schedulerData({
+      operators: [],
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: {} },
+      },
+    })
+
+    const issues = findOpenAssignmentIssues(data, {
+      year: 2026,
+      month: 4,
+      maxShifts: 5,
+      preventBackToBack: true,
+      limitWeekly: true,
+    })
+
+    expect(issues[0]).toEqual({
+      date: '2026-04-01',
+      position: 'EXD',
+      reason: 'No operators exist.',
+    })
   })
 
   it('can clear an existing manual assignment', () => {

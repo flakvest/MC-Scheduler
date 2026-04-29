@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { backupToJson, parseBackupJson } from './domain/backupFiles'
 import { generateScheduleText } from './domain/scheduleOutput'
-import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, setCoverage, smartAssign } from './domain/schedulerRules'
+import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
 import { type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 
@@ -47,6 +47,7 @@ function App() {
   const [maxShifts, setMaxShifts] = useState(5)
   const [preventBackToBack, setPreventBackToBack] = useState(true)
   const [limitWeekly, setLimitWeekly] = useState(true)
+  const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const scheduleData = useMemo(() => ({
@@ -77,7 +78,24 @@ function App() {
   }
 
   const runSmartAssign = () => {
+    const options = {
+      year,
+      month,
+      maxShifts,
+      preventBackToBack,
+      limitWeekly,
+    }
     const result = smartAssign(scheduleData, {
+      ...options,
+    })
+
+    setData(result.data)
+    setAssignmentIssues(result.issues)
+    setStatusMessage(`Smart assign filled ${result.assignedCount} shifts; ${result.blockedCount} could not be filled.`)
+  }
+
+  const refreshAssignmentIssues = () => {
+    const issues = findOpenAssignmentIssues(scheduleData, {
       year,
       month,
       maxShifts,
@@ -85,8 +103,8 @@ function App() {
       limitWeekly,
     })
 
-    setData(result.data)
-    setStatusMessage(`Smart assign filled ${result.assignedCount} shifts; ${result.blockedCount} could not be filled.`)
+    setAssignmentIssues(issues)
+    setStatusMessage(issues.length === 0 ? 'No open assignment issues found.' : `${issues.length} open assignment issues found.`)
   }
 
   const toggleUnavailableDay = (weekday: Weekday) => {
@@ -419,6 +437,7 @@ function App() {
             <button type="button" className="secondary" onClick={exportBackup}>Export</button>
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
+            <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
             <input
               ref={importInputRef}
@@ -487,6 +506,23 @@ function App() {
             Max 2 shifts/week
           </label>
         </section>
+
+        {assignmentIssues.length > 0 ? (
+          <section className="issues-panel" aria-label="Assignment issues">
+            <div className="panel-heading">
+              <h3>Unfilled Shifts</h3>
+              <span>{assignmentIssues.length} open</span>
+            </div>
+            <div className="issues-list">
+              {assignmentIssues.map((issue) => (
+                <div className="issue-row" key={`${issue.date}-${issue.position}`}>
+                  <strong>{issue.date} {issue.position}</strong>
+                  <span>{issue.reason}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="content-grid">
           <div className="calendar-panel">

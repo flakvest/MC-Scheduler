@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { backupToJson, parseBackupJson } from './domain/backupFiles'
-import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, smartAssign } from './domain/schedulerRules'
+import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, setCoverage, smartAssign } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
 import { type SchedulerData, type Weekday } from './domain/schedulerTypes'
 
@@ -185,6 +185,11 @@ function App() {
     setStatusMessage(callsign ? `${callsign} assigned to ${positionCode} on ${dateStr}.` : `${positionCode} cleared on ${dateStr}.`)
   }
 
+  const changeCoverage = (dateStr: string, coverage: boolean) => {
+    setData(setCoverage(scheduleData, dateStr, coverage))
+    setStatusMessage(coverage ? `Coverage turned on for ${dateStr}.` : `Coverage turned off for ${dateStr}; assignments cleared.`)
+  }
+
   const exportBackup = () => {
     const blob = new Blob([backupToJson(scheduleData)], { type: 'application/json' })
     const link = document.createElement('a')
@@ -338,7 +343,14 @@ function App() {
                   <article className={scheduleDay.coverage ? 'calendar-day' : 'calendar-day no-coverage'} key={day}>
                     <div className="day-header">
                       <strong>{day}</strong>
-                      <span>{scheduleDay.coverage ? 'Coverage' : 'Off'}</span>
+                      <label className="coverage-toggle">
+                        <input
+                          type="checkbox"
+                          checked={scheduleDay.coverage}
+                          onChange={(event) => changeCoverage(dateKey(year, month, day), event.target.checked)}
+                        />
+                        {scheduleDay.coverage ? 'Coverage' : 'Off'}
+                      </label>
                     </div>
                     {scheduleDay.coverage ? scheduleData.positions.map((position) => (
                       <div className="assignment-row" key={position.name}>

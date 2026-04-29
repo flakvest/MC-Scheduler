@@ -7,6 +7,7 @@ import {
   getShiftCount,
   getWeeklyShiftCount,
   isOperatorAvailable,
+  setCoverage,
   smartAssign,
   workedOnDate,
 } from './schedulerRules'
@@ -147,5 +148,18 @@ describe('scheduler rules', () => {
 
     expect(result.check.allowed).toBe(true)
     expect(result.data.schedule['2026-04-01'].assignments.DW).toBeUndefined()
+  })
+
+  it('clears assignments when coverage is turned off', () => {
+    const data = schedulerData({
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: { EXD: 'ALPHA', DW: 'BRAVO' } },
+      },
+    })
+
+    const result = setCoverage(data, '2026-04-01', false)
+
+    expect(result.schedule['2026-04-01'].coverage).toBe(false)
+    expect(result.schedule['2026-04-01'].assignments).toEqual({})
   })
 })

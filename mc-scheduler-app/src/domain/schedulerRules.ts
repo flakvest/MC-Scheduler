@@ -226,3 +226,14 @@ export function assignOperator(data: SchedulerData, dateStr: IsoDate, positionCo
 
   return { data: nextData, check }
 }
+
+export function setCoverage(data: SchedulerData, dateStr: IsoDate, coverage: boolean) {
+  const nextData = structuredClone(data)
+
+  nextData.schedule[dateStr] = {
+    coverage,
+    assignments: coverage ? nextData.schedule[dateStr]?.assignments ?? {} : {},
+  }
+
+  return nextData
+}

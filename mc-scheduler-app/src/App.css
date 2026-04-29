@@ -230,6 +230,20 @@ select {
   margin-bottom: 8px;
 }
 
+.coverage-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #5b6975;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.coverage-toggle input {
+  width: auto;
+  min-height: auto;
+}
+
 .assignment-row {
   min-height: 30px;
   border-top: 1px solid #e6ecef;

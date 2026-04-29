@@ -464,8 +464,15 @@ function App() {
   }
 
   const addVacation = () => {
-    if (!vacationCallsign) {
+    const normalizedCallsign = vacationCallsign.trim().toUpperCase()
+
+    if (!normalizedCallsign) {
       setStatusMessage('Select an operator before adding vacation.')
+      return
+    }
+
+    if (!data.operators.some((operator) => operator.callsign === normalizedCallsign)) {
+      setStatusMessage('Select an existing operator before adding vacation.')
       return
     }
 
@@ -483,15 +490,16 @@ function App() {
       ...current,
       vacations: {
         ...current.vacations,
-        [vacationCallsign]: [
-          ...(current.vacations[vacationCallsign] ?? []),
+        [normalizedCallsign]: [
+          ...(current.vacations[normalizedCallsign] ?? []),
           { start: vacationStart, end: vacationEnd },
         ],
       },
     }))
+    setVacationCallsign(normalizedCallsign)
     setVacationStart('')
     setVacationEnd('')
-    setStatusMessage(`Vacation added for ${vacationCallsign}.`)
+    setStatusMessage(`Vacation added for ${normalizedCallsign}.`)
   }
 
   const deleteVacation = (callsign: string, index: number) => {
@@ -815,12 +823,18 @@ function App() {
               <form className="operator-form" onSubmit={(event) => { event.preventDefault(); addVacation() }}>
                 <label>
                   Operator
-                  <select value={vacationCallsign} onChange={(event) => setVacationCallsign(event.target.value)}>
-                    <option value="">Select operator</option>
+                  <input
+                    type="text"
+                    list="vacation-operator-options"
+                    value={vacationCallsign}
+                    onChange={(event) => setVacationCallsign(event.target.value.toUpperCase())}
+                    placeholder="Type callsign"
+                  />
+                  <datalist id="vacation-operator-options">
                     {scheduleData.operators.map((operator) => (
-                      <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
+                      <option value={operator.callsign} key={operator.callsign} />
                     ))}
-                  </select>
+                  </datalist>
                 </label>
                 <label>
                   Start

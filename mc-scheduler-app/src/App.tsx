@@ -1,23 +1,65 @@
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { defaultPositions } from './domain/schedulerTypes'
-
-const positions = defaultPositions
-
-const operators = [
-  { callsign: 'NCS001', ale: true, shifts: 4 },
-  { callsign: 'NCS014', ale: false, shifts: 3 },
-  { callsign: 'NCS027', ale: true, shifts: 2 },
-]
+import { ensureMonthSchedule, getShiftCount, smartAssign } from './domain/schedulerRules'
+import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
+import { type SchedulerData } from './domain/schedulerTypes'
 
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const today = new Date()
+
+const monthName = (year: number, month: number) =>
+  new Date(year, month - 1).toLocaleString('default', { month: 'long' })
+
+const monthPrefix = (year: number, month: number) =>
+  `${year}-${String(month).padStart(2, '0')}`
+
+const dateKey = (year: number, month: number, day: number) =>
+  `${monthPrefix(year, month)}-${String(day).padStart(2, '0')}`
 
 function App() {
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = today.toLocaleString('default', { month: 'long' })
-  const daysInMonth = new Date(year, today.getMonth() + 1, 0).getDate()
-  const firstWeekday = new Date(year, today.getMonth(), 1).getDay()
-  const openShiftCount = 9
+  const [data, setData] = useState<SchedulerData>(() => loadSchedulerData())
+  const [year, setYear] = useState(today.getFullYear())
+  const [month, setMonth] = useState(today.getMonth() + 1)
+  const [statusMessage, setStatusMessage] = useState('Ready')
+
+  const scheduleData = useMemo(() => ({
+    ...data,
+    schedule: ensureMonthSchedule(data.schedule, year, month),
+  }), [data, month, year])
+
+  useEffect(() => {
+    saveSchedulerData(data)
+  }, [data])
+
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const firstWeekday = new Date(year, month - 1, 1).getDay()
+  const currentPrefix = monthPrefix(year, month)
+  const openShiftCount = Object.entries(scheduleData.schedule)
+    .filter(([date]) => date.startsWith(currentPrefix))
+    .reduce((count, [, day]) => {
+      if (!day.coverage) return count
+      const openPositions = scheduleData.positions.filter((position) => !day.assignments[position.name]).length
+      return count + openPositions
+    }, 0)
+
+  const moveMonth = (offset: number) => {
+    const next = new Date(year, month - 1 + offset, 1)
+    setYear(next.getFullYear())
+    setMonth(next.getMonth() + 1)
+  }
+
+  const runSmartAssign = () => {
+    const result = smartAssign(scheduleData, {
+      year,
+      month,
+      maxShifts: 5,
+      preventBackToBack: true,
+      limitWeekly: true,
+    })
+
+    setData(result.data)
+    setStatusMessage(`Smart assign filled ${result.assignedCount} shifts; ${result.blockedCount} could not be filled.`)
+  }
 
   return (
     <main className="app-shell">
@@ -39,23 +81,23 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Planning month</p>
-            <h2>{month} {year}</h2>
+            <h2>{monthName(year, month)} {year}</h2>
           </div>
           <div className="toolbar" aria-label="Schedule actions">
             <button type="button" className="secondary">Import</button>
             <button type="button" className="secondary">Export</button>
-            <button type="button" className="primary">Smart Assign</button>
+            <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
           </div>
         </header>
 
         <section className="summary-grid" aria-label="Schedule summary">
           <article>
             <span>Operators</span>
-            <strong>{operators.length}</strong>
+            <strong>{scheduleData.operators.length}</strong>
           </article>
           <article>
             <span>Positions</span>
-            <strong>{positions.length}</strong>
+            <strong>{scheduleData.positions.length}</strong>
           </article>
           <article>
             <span>Open Shifts</span>
@@ -63,17 +105,19 @@ function App() {
           </article>
           <article>
             <span>Storage</span>
-            <strong>Local JSON</strong>
+            <strong>Browser JSON</strong>
           </article>
         </section>
+
+        <p className="status-line">{statusMessage}</p>
 
         <section className="content-grid">
           <div className="calendar-panel">
             <div className="panel-heading">
               <h3>Calendar</h3>
               <div className="month-controls" aria-label="Month controls">
-                <button type="button" aria-label="Previous month">‹</button>
-                <button type="button" aria-label="Next month">›</button>
+                <button type="button" aria-label="Previous month" onClick={() => moveMonth(-1)}>&lt;</button>
+                <button type="button" aria-label="Next month" onClick={() => moveMonth(1)}>&gt;</button>
               </div>
             </div>
 
@@ -86,18 +130,18 @@ function App() {
               ))}
               {Array.from({ length: daysInMonth }).map((_, index) => {
                 const day = index + 1
-                const isCovered = day % 6 !== 0
+                const scheduleDay = scheduleData.schedule[dateKey(year, month, day)]
 
                 return (
-                  <article className={isCovered ? 'calendar-day' : 'calendar-day no-coverage'} key={day}>
+                  <article className={scheduleDay.coverage ? 'calendar-day' : 'calendar-day no-coverage'} key={day}>
                     <div className="day-header">
                       <strong>{day}</strong>
-                      <span>{isCovered ? 'Coverage' : 'Off'}</span>
+                      <span>{scheduleDay.coverage ? 'Coverage' : 'Off'}</span>
                     </div>
-                    {isCovered ? positions.map((position) => (
+                    {scheduleDay.coverage ? scheduleData.positions.map((position) => (
                       <div className="assignment-row" key={position.name}>
                         <span>{position.shortName}</span>
-                        <button type="button">Open</button>
+                        <button type="button">{scheduleDay.assignments[position.name] || 'Open'}</button>
                       </div>
                     )) : null}
                   </article>
@@ -113,11 +157,13 @@ function App() {
                 <button type="button">Add</button>
               </div>
               <div className="table-list">
-                {operators.map((operator) => (
+                {scheduleData.operators.length === 0 ? (
+                  <p className="empty-state">No operators yet.</p>
+                ) : scheduleData.operators.map((operator) => (
                   <div className="table-row" key={operator.callsign}>
                     <strong>{operator.callsign}</strong>
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
-                    <span>{operator.shifts} shifts</span>
+                    <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
                   </div>
                 ))}
               </div>
@@ -129,7 +175,7 @@ function App() {
                 <button type="button">Add</button>
               </div>
               <div className="table-list">
-                {positions.map((position) => (
+                {scheduleData.positions.map((position) => (
                   <div className="table-row" key={position.name}>
                     <strong>{position.shortName}</strong>
                     <span>{position.requiresALE ? 'Requires ALE' : 'No ALE required'}</span>

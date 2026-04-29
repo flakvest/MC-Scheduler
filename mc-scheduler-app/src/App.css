@@ -141,6 +141,17 @@ button:hover {
   font-size: 24px;
 }
 
+.status-line,
+.empty-state {
+  margin: 0;
+  color: #5b6975;
+  font-size: 14px;
+}
+
+.status-line {
+  margin-bottom: 12px;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;

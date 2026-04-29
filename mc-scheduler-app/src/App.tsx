@@ -36,6 +36,9 @@ function App() {
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
   const [newPositionCode, setNewPositionCode] = useState('')
   const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
+  const [vacationCallsign, setVacationCallsign] = useState('')
+  const [vacationStart, setVacationStart] = useState('')
+  const [vacationEnd, setVacationEnd] = useState('')
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const scheduleData = useMemo(() => ({
@@ -204,6 +207,53 @@ function App() {
     } finally {
       if (importInputRef.current) importInputRef.current.value = ''
     }
+  }
+
+  const addVacation = () => {
+    if (!vacationCallsign) {
+      setStatusMessage('Select an operator before adding vacation.')
+      return
+    }
+
+    if (!vacationStart || !vacationEnd) {
+      setStatusMessage('Enter both vacation start and end dates.')
+      return
+    }
+
+    if (vacationEnd < vacationStart) {
+      setStatusMessage('Vacation end date cannot be before the start date.')
+      return
+    }
+
+    setData((current) => ({
+      ...current,
+      vacations: {
+        ...current.vacations,
+        [vacationCallsign]: [
+          ...(current.vacations[vacationCallsign] ?? []),
+          { start: vacationStart, end: vacationEnd },
+        ],
+      },
+    }))
+    setVacationStart('')
+    setVacationEnd('')
+    setStatusMessage(`Vacation added for ${vacationCallsign}.`)
+  }
+
+  const deleteVacation = (callsign: string, index: number) => {
+    setData((current) => {
+      const remaining = (current.vacations[callsign] ?? []).filter((_, itemIndex) => itemIndex !== index)
+      const vacations = { ...current.vacations }
+
+      if (remaining.length > 0) vacations[callsign] = remaining
+      else delete vacations[callsign]
+
+      return {
+        ...current,
+        vacations,
+      }
+    })
+    setStatusMessage(`Vacation removed for ${callsign}.`)
   }
 
   return (
@@ -388,6 +438,46 @@ function App() {
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
                     <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
                   </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="data-panel" id="vacations">
+              <div className="panel-heading">
+                <h3>Vacations</h3>
+              </div>
+              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); addVacation() }}>
+                <label>
+                  Operator
+                  <select value={vacationCallsign} onChange={(event) => setVacationCallsign(event.target.value)}>
+                    <option value="">Select operator</option>
+                    {scheduleData.operators.map((operator) => (
+                      <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Start
+                  <input type="date" value={vacationStart} onChange={(event) => setVacationStart(event.target.value)} />
+                </label>
+                <label>
+                  End
+                  <input type="date" value={vacationEnd} onChange={(event) => setVacationEnd(event.target.value)} />
+                </label>
+                <button type="submit" className="primary">Add Vacation</button>
+              </form>
+
+              <div className="table-list">
+                {Object.entries(scheduleData.vacations).length === 0 ? (
+                  <p className="empty-state">No vacations entered.</p>
+                ) : Object.entries(scheduleData.vacations).map(([callsign, vacations]) => (
+                  vacations.map((vacation, index) => (
+                    <div className="table-row vacation-row" key={`${callsign}-${vacation.start}-${vacation.end}-${index}`}>
+                      <strong>{callsign}</strong>
+                      <span>{vacation.start} to {vacation.end}</span>
+                      <button type="button" onClick={() => deleteVacation(callsign, index)}>Remove</button>
+                    </div>
+                  ))
                 ))}
               </div>
             </section>

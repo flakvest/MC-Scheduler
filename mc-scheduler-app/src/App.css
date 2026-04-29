@@ -99,7 +99,8 @@ button:hover {
   border-color: #5eb1bf;
 }
 
-input {
+input,
+select {
   min-height: 36px;
   width: 100%;
   border: 1px solid #c6d0d8;
@@ -107,6 +108,7 @@ input {
   padding: 8px 10px;
   color: #17212b;
   font: inherit;
+  background: #ffffff;
 }
 
 .hidden-file-input {
@@ -311,6 +313,18 @@ input {
 
 .table-row:last-child {
   border-bottom: 0;
+}
+
+.vacation-row {
+  align-items: flex-start;
+  flex-direction: column;
+  padding-bottom: 8px;
+}
+
+.vacation-row button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 @media (max-width: 1100px) {

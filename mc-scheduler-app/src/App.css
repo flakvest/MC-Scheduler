@@ -336,6 +336,11 @@ select {
   background: #fbfcfd;
 }
 
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .table-list {
   display: grid;
   gap: 8px;
@@ -348,6 +353,12 @@ select {
 
 .table-row:last-child {
   border-bottom: 0;
+}
+
+.table-row button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .vacation-row {

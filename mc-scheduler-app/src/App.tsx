@@ -4,7 +4,7 @@ import { backupToJson, parseBackupJson } from './domain/backupFiles'
 import { generateScheduleText } from './domain/scheduleOutput'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, setCoverage, smartAssign } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
-import { type SchedulerData, type Weekday } from './domain/schedulerTypes'
+import { type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 
 const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Sun', value: 0 },
@@ -37,6 +37,7 @@ function App() {
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
+  const [editingOperatorCallsign, setEditingOperatorCallsign] = useState<string | null>(null)
   const [newPositionCode, setNewPositionCode] = useState('')
   const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
   const [vacationCallsign, setVacationCallsign] = useState('')
@@ -98,6 +99,25 @@ function App() {
     }))
   }
 
+  const resetOperatorForm = () => {
+    setNewCallsign('')
+    setNewOperatorAle(false)
+    setNewOperatorUnavailable([])
+    setNewOperatorPermissions({})
+    setEditingOperatorCallsign(null)
+  }
+
+  const startEditOperator = (callsign: string) => {
+    const operator = data.operators.find((item) => item.callsign === callsign)
+    if (!operator) return
+
+    setEditingOperatorCallsign(operator.callsign)
+    setNewCallsign(operator.callsign)
+    setNewOperatorAle(operator.ale)
+    setNewOperatorUnavailable(operator.unavailable)
+    setNewOperatorPermissions(operator.positionPermissions)
+  }
+
   const addOperator = () => {
     const callsign = newCallsign.trim().toUpperCase()
 
@@ -130,11 +150,61 @@ function App() {
         },
       ],
     }))
-    setNewCallsign('')
-    setNewOperatorAle(false)
-    setNewOperatorUnavailable([])
-    setNewOperatorPermissions({})
+    resetOperatorForm()
     setStatusMessage(`${callsign} added.`)
+  }
+
+  const saveOperatorEdit = () => {
+    if (!editingOperatorCallsign) return
+
+    const callsign = newCallsign.trim().toUpperCase()
+
+    if (!callsign) {
+      setStatusMessage('Enter a callsign before saving the operator.')
+      return
+    }
+
+    if (data.operators.some((operator) => operator.callsign === callsign && operator.callsign !== editingOperatorCallsign)) {
+      setStatusMessage(`${callsign} already exists.`)
+      return
+    }
+
+    const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
+      permissions[position.name] = position.name === 'EXD'
+        ? newOperatorAle
+        : newOperatorPermissions[position.name] !== false
+      return permissions
+    }, {})
+
+    setData((current) => ({
+      ...current,
+      operators: current.operators.map((operator) => operator.callsign === editingOperatorCallsign
+        ? {
+            callsign,
+            ale: newOperatorAle,
+            unavailable: [...newOperatorUnavailable].sort(),
+            positionPermissions,
+          }
+        : operator),
+      schedule: Object.entries(current.schedule).reduce<SchedulerData['schedule']>((schedule, [date, day]) => {
+        schedule[date] = {
+          ...day,
+          assignments: Object.entries(day.assignments).reduce<Record<string, string>>((assignments, [position, assignedCallsign]) => {
+            assignments[position] = assignedCallsign === editingOperatorCallsign ? callsign : assignedCallsign
+            return assignments
+          }, {}),
+        }
+        return schedule
+      }, {}),
+      vacations: callsign === editingOperatorCallsign || !current.vacations[editingOperatorCallsign]
+        ? current.vacations
+        : Object.entries(current.vacations).reduce<VacationMap>((vacations, [key, entries]) => {
+            vacations[key === editingOperatorCallsign ? callsign : key] = entries
+            return vacations
+          }, {}),
+    }))
+    resetOperatorForm()
+    setStatusMessage(`${callsign} updated. Existing assignments were left unchanged.`)
   }
 
   const addPosition = () => {
@@ -425,7 +495,7 @@ function App() {
               <div className="panel-heading">
                 <h3>Operators</h3>
               </div>
-              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); addOperator() }}>
+              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); editingOperatorCallsign ? saveOperatorEdit() : addOperator() }}>
                 <label>
                   Callsign
                   <input
@@ -482,7 +552,10 @@ function App() {
                   </div>
                 </fieldset>
 
-                <button type="submit" className="primary">Add Operator</button>
+                <div className="form-actions">
+                  <button type="submit" className="primary">{editingOperatorCallsign ? 'Save Operator' : 'Add Operator'}</button>
+                  {editingOperatorCallsign ? <button type="button" onClick={resetOperatorForm}>Cancel Edit</button> : null}
+                </div>
               </form>
               <div className="table-list">
                 {scheduleData.operators.length === 0 ? (
@@ -492,6 +565,7 @@ function App() {
                     <strong>{operator.callsign}</strong>
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
                     <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
+                    <button type="button" onClick={() => startEditOperator(operator.callsign)}>Edit</button>
                   </div>
                 ))}
               </div>

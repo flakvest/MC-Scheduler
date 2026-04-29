@@ -134,6 +134,7 @@ select {
 
 .summary-grid article,
 .calendar-panel,
+.output-panel,
 .data-panel {
   border: 1px solid #d9e1e7;
   border-radius: 8px;
@@ -176,8 +177,31 @@ select {
 }
 
 .calendar-panel,
+.output-panel,
 .data-panel {
   padding: 16px;
+}
+
+.calendar-panel,
+.output-panel {
+  grid-column: 1;
+}
+
+.side-panels {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.output-panel textarea {
+  min-height: 260px;
+  width: 100%;
+  border: 1px solid #c6d0d8;
+  border-radius: 6px;
+  padding: 12px;
+  color: #17212b;
+  background: #fbfcfd;
+  font: 13px/1.45 Consolas, "Courier New", monospace;
+  resize: vertical;
 }
 
 .panel-heading {
@@ -356,8 +380,49 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .calendar-panel,
+  .output-panel,
+  .side-panels {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .calendar-grid {
     grid-template-columns: repeat(7, minmax(72px, 1fr));
     overflow-x: auto;
+  }
+}
+
+@media print {
+  .sidebar,
+  .topbar,
+  .summary-grid,
+  .status-line,
+  .side-panels,
+  .output-panel {
+    display: none !important;
+  }
+
+  .app-shell,
+  .workspace,
+  .content-grid,
+  .calendar-panel {
+    display: block;
+    min-height: auto;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .calendar-panel {
+    border: 0;
+  }
+
+  .calendar-grid {
+    grid-template-columns: repeat(7, 1fr);
+  }
+
+  .calendar-day {
+    min-height: 110px;
+    break-inside: avoid;
   }
 }

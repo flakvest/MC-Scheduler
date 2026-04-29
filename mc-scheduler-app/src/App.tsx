@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { backupToJson, parseBackupJson } from './domain/backupFiles'
+import { generateScheduleText } from './domain/scheduleOutput'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, setCoverage, smartAssign } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
 import { type SchedulerData, type Weekday } from './domain/schedulerTypes'
@@ -53,6 +54,7 @@ function App() {
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstWeekday = new Date(year, month - 1, 1).getDay()
   const currentPrefix = monthPrefix(year, month)
+  const scheduleText = useMemo(() => generateScheduleText(scheduleData, year, month), [month, scheduleData, year])
   const openShiftCount = Object.entries(scheduleData.schedule)
     .filter(([date]) => date.startsWith(currentPrefix))
     .reduce((count, [, day]) => {
@@ -200,6 +202,20 @@ function App() {
     setStatusMessage('Backup exported.')
   }
 
+  const downloadScheduleText = () => {
+    const blob = new Blob([scheduleText], { type: 'text/plain' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `mars-schedule-${currentPrefix}.txt`
+    link.click()
+    URL.revokeObjectURL(link.href)
+    setStatusMessage('Text schedule downloaded.')
+  }
+
+  const printSchedule = () => {
+    window.print()
+  }
+
   const importBackup = async (file: File | undefined) => {
     if (!file) return
 
@@ -286,6 +302,8 @@ function App() {
           <div className="toolbar" aria-label="Schedule actions">
             <button type="button" className="secondary" onClick={() => importInputRef.current?.click()}>Import</button>
             <button type="button" className="secondary" onClick={exportBackup}>Export</button>
+            <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
+            <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
             <input
               ref={importInputRef}
@@ -376,6 +394,13 @@ function App() {
               })}
             </div>
           </div>
+
+          <section className="output-panel">
+            <div className="panel-heading">
+              <h3>Text Preview</h3>
+            </div>
+            <textarea value={scheduleText} readOnly aria-label="Text schedule preview" />
+          </section>
 
           <aside className="side-panels">
             <section className="data-panel" id="operators">

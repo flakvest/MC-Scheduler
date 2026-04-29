@@ -112,7 +112,7 @@ describe('scheduler rules', () => {
     expect(canAssignOperator(baseData, '2026-04-02', dwPosition, 'ALPHA', {
       maxShifts: 10,
       preventBackToBack: false,
-      limitWeekly: true,
+      maxShiftsPerWeek: 2,
     }).allowed).toBe(false)
     expect(getWeeklyShiftCount(baseData.schedule, baseData.positions, 'ALPHA', '2026-04-02')).toBe(2)
   })
@@ -129,7 +129,7 @@ describe('scheduler rules', () => {
       month: 4,
       maxShifts: 5,
       preventBackToBack: true,
-      limitWeekly: true,
+      maxShiftsPerWeek: 2,
     })
 
     expect(result.assignedCount).toBeGreaterThan(0)
@@ -153,7 +153,7 @@ describe('scheduler rules', () => {
       month: 4,
       maxShifts: 1,
       preventBackToBack: true,
-      limitWeekly: true,
+      maxShiftsPerWeek: 2,
     })
 
     expect(result.blockedCount).toBeGreaterThan(0)
@@ -175,7 +175,7 @@ describe('scheduler rules', () => {
       month: 4,
       maxShifts: 5,
       preventBackToBack: true,
-      limitWeekly: true,
+      maxShiftsPerWeek: 2,
     })
 
     expect(issues[0]).toEqual({

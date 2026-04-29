@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { backupToJson, parseBackupJson } from './domain/backupFiles'
+import { clearAssignmentsForMonth, createMonthSnapshot, monthHasAssignments } from './domain/monthTools'
+import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
+import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
 import { type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 
@@ -40,13 +43,12 @@ function App() {
   const [editingOperatorCallsign, setEditingOperatorCallsign] = useState<string | null>(null)
   const [newPositionCode, setNewPositionCode] = useState('')
   const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
+  const [editingPositionCode, setEditingPositionCode] = useState<string | null>(null)
   const [vacationCallsign, setVacationCallsign] = useState('')
   const [vacationStart, setVacationStart] = useState('')
   const [vacationEnd, setVacationEnd] = useState('')
   const [activeAdminPanel, setActiveAdminPanel] = useState<AdminPanel | null>(null)
-  const [maxShifts, setMaxShifts] = useState(5)
-  const [preventBackToBack, setPreventBackToBack] = useState(true)
-  const [limitWeekly, setLimitWeekly] = useState(true)
+  const [smartAssignSettings, setSmartAssignSettings] = useState(() => loadSmartAssignSettings())
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
   const importInputRef = useRef<HTMLInputElement>(null)
 
@@ -58,6 +60,10 @@ function App() {
   useEffect(() => {
     saveSchedulerData(data)
   }, [data])
+
+  useEffect(() => {
+    saveSmartAssignSettings(smartAssignSettings)
+  }, [smartAssignSettings])
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstWeekday = new Date(year, month - 1, 1).getDay()
@@ -81,9 +87,9 @@ function App() {
     const options = {
       year,
       month,
-      maxShifts,
-      preventBackToBack,
-      limitWeekly,
+      maxShifts: smartAssignSettings.maxShiftsPerMonth,
+      preventBackToBack: smartAssignSettings.noBackToBack,
+      maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
     }
     const result = smartAssign(scheduleData, {
       ...options,
@@ -98,9 +104,9 @@ function App() {
     const issues = findOpenAssignmentIssues(scheduleData, {
       year,
       month,
-      maxShifts,
-      preventBackToBack,
-      limitWeekly,
+      maxShifts: smartAssignSettings.maxShiftsPerMonth,
+      preventBackToBack: smartAssignSettings.noBackToBack,
+      maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
     })
 
     setAssignmentIssues(issues)
@@ -304,6 +310,80 @@ function App() {
     setStatusMessage(`${positionCode} position added.`)
   }
 
+  const resetPositionForm = () => {
+    setNewPositionCode('')
+    setNewPositionRequiresAle(false)
+    setEditingPositionCode(null)
+  }
+
+  const startEditPosition = (positionCode: string) => {
+    const position = data.positions.find((item) => item.name === positionCode)
+    if (!position) return
+
+    setEditingPositionCode(position.name)
+    setNewPositionCode(position.shortName)
+    setNewPositionRequiresAle(position.requiresALE)
+  }
+
+  const savePositionEdit = () => {
+    if (!editingPositionCode) return
+
+    const positionCode = newPositionCode.trim().toUpperCase()
+
+    if (!positionCode) {
+      setStatusMessage('Enter a position code before saving the position.')
+      return
+    }
+
+    const currentPosition = data.positions.find((position) => position.name === editingPositionCode)
+    if (!currentPosition) {
+      setStatusMessage('Position does not exist.')
+      return
+    }
+
+    const codeChanged = positionCode !== currentPosition.name || positionCode !== currentPosition.shortName
+    if (
+      codeChanged &&
+      !window.confirm(`Rename position ${currentPosition.shortName} to ${positionCode}? Existing assignments and permissions will be updated.`)
+    ) {
+      setStatusMessage('Position rename canceled.')
+      return
+    }
+
+    const result = editPosition(data, {
+      positionCode: editingPositionCode,
+      updates: {
+        name: positionCode,
+        shortName: positionCode,
+        requiresALE: newPositionRequiresAle,
+      },
+      options: { allowCodeOrNameChange: codeChanged },
+    })
+
+    if (result.errors.length > 0) {
+      setStatusMessage(result.errors[0])
+      return
+    }
+
+    setData(result.data)
+    resetPositionForm()
+    setStatusMessage(`${positionCode} position updated.`)
+  }
+
+  const removePosition = (positionCode: string) => {
+    if (!window.confirm(`Delete ${positionCode}? This will clear its assignments and operator permissions.`)) return
+
+    const result = deletePosition(data, positionCode)
+    if (result.errors.length > 0) {
+      setStatusMessage(result.errors[0])
+      return
+    }
+
+    setData(result.data)
+    if (editingPositionCode === positionCode) resetPositionForm()
+    setStatusMessage(`${positionCode} position deleted.`)
+  }
+
   const changeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
     const result = assignOperator(scheduleData, dateStr, positionCode, callsign)
 
@@ -324,17 +404,24 @@ function App() {
   const clearCalendarAssignments = () => {
     if (!window.confirm(`Clear all assignments for ${monthName(year, month)} ${year}?`)) return
 
-    setData((current) => ({
-      ...current,
-      schedule: Object.entries(current.schedule).reduce<SchedulerData['schedule']>((schedule, [date, day]) => {
-        schedule[date] = date.startsWith(currentPrefix)
-          ? { ...day, assignments: {} }
-          : day
-        return schedule
-      }, {}),
-    }))
+    if (!monthHasAssignments(scheduleData, currentPrefix)) {
+      setStatusMessage(`No assignments to clear for ${monthName(year, month)} ${year}.`)
+      return
+    }
+
+    setData((current) => clearAssignmentsForMonth(current, currentPrefix))
     setAssignmentIssues([])
     setStatusMessage(`Assignments cleared for ${monthName(year, month)} ${year}.`)
+  }
+
+  const exportMonthBackup = () => {
+    const blob = new Blob([backupToJson(createMonthSnapshot(scheduleData, currentPrefix))], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `mc-scheduler-month-${currentPrefix}.json`
+    link.click()
+    URL.revokeObjectURL(link.href)
+    setStatusMessage(`Month backup exported for ${monthName(year, month)} ${year}.`)
   }
 
   const exportBackup = () => {
@@ -451,6 +538,7 @@ function App() {
           <div className="toolbar" aria-label="Schedule actions">
             <button type="button" className="secondary" onClick={() => importInputRef.current?.click()}>Import</button>
             <button type="button" className="secondary" onClick={exportBackup}>Export</button>
+            <button type="button" className="secondary" onClick={exportMonthBackup}>Export Month</button>
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
@@ -500,7 +588,13 @@ function App() {
           </div>
           <label>
             Max shifts/month
-            <select value={maxShifts} onChange={(event) => setMaxShifts(Number(event.target.value))}>
+            <select
+              value={smartAssignSettings.maxShiftsPerMonth}
+              onChange={(event) => setSmartAssignSettings((current) => ({
+                ...current,
+                maxShiftsPerMonth: Number(event.target.value),
+              }))}
+            >
               {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
                 <option value={value} key={value}>{value}</option>
               ))}
@@ -509,18 +603,27 @@ function App() {
           <label className="check-row">
             <input
               type="checkbox"
-              checked={preventBackToBack}
-              onChange={(event) => setPreventBackToBack(event.target.checked)}
+              checked={smartAssignSettings.noBackToBack}
+              onChange={(event) => setSmartAssignSettings((current) => ({
+                ...current,
+                noBackToBack: event.target.checked,
+              }))}
             />
             No back-to-back
           </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={limitWeekly}
-              onChange={(event) => setLimitWeekly(event.target.checked)}
-            />
-            Max 2 shifts/week
+          <label>
+            Max shifts/week
+            <select
+              value={smartAssignSettings.maxShiftsPerWeek}
+              onChange={(event) => setSmartAssignSettings((current) => ({
+                ...current,
+                maxShiftsPerWeek: Number(event.target.value),
+              }))}
+            >
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+                <option value={value} key={value}>{value}</option>
+              ))}
+            </select>
           </label>
         </section>
 
@@ -742,7 +845,7 @@ function App() {
               <div className="panel-heading">
                 <h3>Positions</h3>
               </div>
-              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); addPosition() }}>
+              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); editingPositionCode ? savePositionEdit() : addPosition() }}>
                 <label>
                   Short code
                   <input
@@ -758,16 +861,22 @@ function App() {
                     type="checkbox"
                     checked={newPositionRequiresAle}
                     onChange={(event) => setNewPositionRequiresAle(event.target.checked)}
+                    disabled={editingPositionCode === 'EXD'}
                   />
                   Requires ALE
                 </label>
-                <button type="submit" className="primary">Add Position</button>
+                <div className="form-actions">
+                  <button type="submit" className="primary">{editingPositionCode ? 'Save Position' : 'Add Position'}</button>
+                  {editingPositionCode ? <button type="button" onClick={resetPositionForm}>Cancel Edit</button> : null}
+                </div>
               </form>
               <div className="table-list">
                 {scheduleData.positions.map((position) => (
                   <div className="table-row" key={position.name}>
                     <strong>{position.shortName}</strong>
                     <span>{position.requiresALE ? 'Requires ALE' : 'No ALE required'}</span>
+                    <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
+                    <button type="button" className="danger" onClick={() => removePosition(position.name)}>Delete</button>
                   </div>
                 ))}
               </div>

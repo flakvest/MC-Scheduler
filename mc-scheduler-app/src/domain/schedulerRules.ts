@@ -13,7 +13,8 @@ export type SmartAssignOptions = {
   month: number
   maxShifts: number
   preventBackToBack: boolean
-  limitWeekly: boolean
+  limitWeekly?: boolean
+  maxShiftsPerWeek?: number
 }
 
 export type SmartAssignResult = {
@@ -145,7 +146,7 @@ export function canAssignOperator(
   dateStr: IsoDate,
   position: Position,
   callsign: Callsign,
-  options?: Pick<SmartAssignOptions, 'maxShifts' | 'preventBackToBack' | 'limitWeekly'>,
+  options?: Pick<SmartAssignOptions, 'maxShifts' | 'preventBackToBack' | 'limitWeekly' | 'maxShiftsPerWeek'>,
 ): AssignmentCheck {
   const operator = getOperator(data.operators, callsign)
   if (!operator) return { allowed: false, reason: 'Operator does not exist.' }
@@ -181,7 +182,9 @@ export function canAssignOperator(
     return { allowed: false, reason: 'Operator worked the previous day.' }
   }
 
-  if (options.limitWeekly && getWeeklyShiftCount(data.schedule, data.positions, callsign, dateStr) >= 2) {
+  const weeklyLimit = options.maxShiftsPerWeek ?? (options.limitWeekly ? 2 : Number.POSITIVE_INFINITY)
+
+  if (getWeeklyShiftCount(data.schedule, data.positions, callsign, dateStr) >= weeklyLimit) {
     return { allowed: false, reason: 'Operator reached the weekly shift limit.' }
   }
 

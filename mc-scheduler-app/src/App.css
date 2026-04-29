@@ -2,16 +2,18 @@
   min-height: 100vh;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  background: #f5f7f9;
+  background: #f3f6f8;
   color: #17212b;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 36px;
-  padding: 28px;
+  gap: 28px;
+  padding: 24px 22px;
   background: #10212f;
   color: #f8fbfd;
 }
@@ -24,8 +26,8 @@
 
 .sidebar h1 {
   max-width: 220px;
-  font-size: 30px;
-  line-height: 1.05;
+  font-size: 28px;
+  line-height: 1.1;
 }
 
 .eyebrow {
@@ -39,14 +41,15 @@
 
 .nav-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .nav-list a {
   color: #d9e8ef;
   text-decoration: none;
-  padding: 10px 12px;
+  padding: 9px 11px;
   border-radius: 6px;
+  font-weight: 600;
 }
 
 .nav-list a[aria-current='page'],
@@ -57,7 +60,7 @@
 
 .workspace {
   min-width: 0;
-  padding: 28px;
+  padding: 20px 22px 24px;
 }
 
 .topbar,
@@ -71,11 +74,12 @@
 .topbar {
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .topbar h2 {
-  font-size: 32px;
+  font-size: 28px;
+  line-height: 1.15;
 }
 
 .toolbar,
@@ -85,25 +89,35 @@
 
 button {
   min-height: 36px;
-  border: 1px solid #c6d0d8;
+  border: 1px solid #b8c5cf;
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 7px 11px;
   background: #ffffff;
   color: #17212b;
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease;
 }
 
 button:hover {
-  border-color: #5eb1bf;
+  border-color: #5b9dab;
+  background: #f8fbfc;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+.output-panel textarea:focus-visible {
+  outline: 2px solid #5eb1bf;
+  outline-offset: 1px;
 }
 
 input,
 select {
   min-height: 36px;
   width: 100%;
-  border: 1px solid #c6d0d8;
+  border: 1px solid #b8c5cf;
   border-radius: 6px;
   padding: 8px 10px;
   color: #17212b;
@@ -116,9 +130,14 @@ select {
 }
 
 .primary {
-  background: #1f6f78;
-  border-color: #1f6f78;
+  background: #225f7a;
+  border-color: #225f7a;
   color: #ffffff;
+}
+
+.primary:hover {
+  background: #1c526a;
+  border-color: #1c526a;
 }
 
 .secondary {
@@ -137,8 +156,8 @@ select {
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
 .summary-grid article,
@@ -152,8 +171,8 @@ select {
 
 .summary-grid article {
   display: grid;
-  gap: 6px;
-  padding: 16px;
+  gap: 4px;
+  padding: 12px 14px;
 }
 
 .summary-grid span,
@@ -164,7 +183,7 @@ select {
 }
 
 .summary-grid strong {
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .status-line,
@@ -175,25 +194,25 @@ select {
 }
 
 .status-line {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .admin-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .settings-panel {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) 170px repeat(2, minmax(160px, auto));
   align-items: center;
-  gap: 14px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 14px;
   border: 1px solid #d9e1e7;
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: #ffffff;
 }
 
@@ -208,10 +227,10 @@ select {
 }
 
 .issues-panel {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
   border: 1px solid #e0b45b;
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: #fff9eb;
 }
 
@@ -241,14 +260,14 @@ select {
 .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
+  gap: 14px;
   align-items: start;
 }
 
 .calendar-panel,
 .output-panel,
 .data-panel {
-  padding: 16px;
+  padding: 14px;
 }
 
 .calendar-panel,
@@ -257,13 +276,13 @@ select {
 }
 
 .output-panel textarea {
-  min-height: 260px;
+  min-height: 220px;
   width: 100%;
-  border: 1px solid #c6d0d8;
+  border: 1px solid #b8c5cf;
   border-radius: 6px;
-  padding: 12px;
+  padding: 10px 11px;
   color: #17212b;
-  background: #fbfcfd;
+  background: #fcfdfe;
   font: 13px/1.45 Consolas, "Courier New", monospace;
   resize: vertical;
 }
@@ -271,17 +290,17 @@ select {
 .panel-heading {
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(96px, 1fr));
-  gap: 6px;
+  gap: 4px;
 }
 
 .weekday {
-  padding: 8px;
+  padding: 6px 8px;
   color: #40515f;
   font-size: 13px;
   font-weight: 800;
@@ -289,10 +308,10 @@ select {
 }
 
 .calendar-day {
-  min-height: 148px;
+  min-height: 138px;
   border: 1px solid #d9e1e7;
   border-radius: 6px;
-  padding: 8px;
+  padding: 7px;
   background: #fbfcfd;
 }
 
@@ -315,7 +334,7 @@ select {
 }
 
 .day-header {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .coverage-toggle {
@@ -333,7 +352,7 @@ select {
 }
 
 .assignment-row {
-  min-height: 30px;
+  min-height: 28px;
   border-top: 1px solid #e6ecef;
   font-size: 13px;
 }
@@ -344,15 +363,15 @@ select {
 
 .assignment-row button {
   min-height: 26px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   font-size: 12px;
 }
 
 .operator-form {
   display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
   border-bottom: 1px solid #e6ecef;
 }
 
@@ -386,30 +405,30 @@ select {
 .chip-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .chip-check {
   min-height: 32px;
   border: 1px solid #d9e1e7;
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 5px 7px;
   background: #fbfcfd;
 }
 
 .form-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .table-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .table-row {
-  min-height: 42px;
+  min-height: 38px;
   border-bottom: 1px solid #e6ecef;
 }
 
@@ -418,8 +437,8 @@ select {
 }
 
 .table-row button {
-  min-height: 30px;
-  padding: 5px 8px;
+  min-height: 28px;
+  padding: 4px 7px;
   font-size: 12px;
 }
 
@@ -430,8 +449,8 @@ select {
 }
 
 .vacation-row button {
-  min-height: 30px;
-  padding: 5px 8px;
+  min-height: 28px;
+  padding: 4px 7px;
   font-size: 12px;
 }
 
@@ -440,12 +459,12 @@ select {
   inset: 0 0 0 auto;
   z-index: 30;
   display: none;
-  width: min(440px, 92vw);
+  width: min(420px, 92vw);
   overflow-y: auto;
   border-left: 1px solid #c6d0d8;
   background: #ffffff;
-  box-shadow: -16px 0 32px rgba(16, 33, 47, 0.18);
-  padding: 18px;
+  box-shadow: -10px 0 24px rgba(16, 33, 47, 0.16);
+  padding: 14px;
 }
 
 .admin-drawer.open {
@@ -457,7 +476,7 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .drawer-heading h3 {

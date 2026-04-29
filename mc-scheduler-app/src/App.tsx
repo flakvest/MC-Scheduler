@@ -321,6 +321,22 @@ function App() {
     setStatusMessage(coverage ? `Coverage turned on for ${dateStr}.` : `Coverage turned off for ${dateStr}; assignments cleared.`)
   }
 
+  const clearCalendarAssignments = () => {
+    if (!window.confirm(`Clear all assignments for ${monthName(year, month)} ${year}?`)) return
+
+    setData((current) => ({
+      ...current,
+      schedule: Object.entries(current.schedule).reduce<SchedulerData['schedule']>((schedule, [date, day]) => {
+        schedule[date] = date.startsWith(currentPrefix)
+          ? { ...day, assignments: {} }
+          : day
+        return schedule
+      }, {}),
+    }))
+    setAssignmentIssues([])
+    setStatusMessage(`Assignments cleared for ${monthName(year, month)} ${year}.`)
+  }
+
   const exportBackup = () => {
     const blob = new Blob([backupToJson(scheduleData)], { type: 'application/json' })
     const link = document.createElement('a')
@@ -438,6 +454,7 @@ function App() {
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
+            <button type="button" className="secondary danger" onClick={clearCalendarAssignments}>Clear Calendar</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
             <input
               ref={importInputRef}

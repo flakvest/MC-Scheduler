@@ -653,6 +653,7 @@ function App() {
                 <button type="button" aria-label="Next month" onClick={() => moveMonth(1)}>&gt;</button>
               </div>
             </div>
+            <h2 className="print-only print-calendar-title">{monthName(year, month)} {year}</h2>
 
             <div className="calendar-grid">
               {weekdays.map((day) => (
@@ -668,8 +669,8 @@ function App() {
                 return (
                   <article className={scheduleDay.coverage ? 'calendar-day' : 'calendar-day no-coverage'} key={day}>
                     <div className="day-header">
-                      <strong>{day}</strong>
-                      <label className="coverage-toggle">
+                      <strong className="print-day-number">{day}</strong>
+                      <label className="coverage-toggle screen-only">
                         <input
                           type="checkbox"
                           checked={scheduleDay.coverage}
@@ -680,8 +681,9 @@ function App() {
                     </div>
                     {scheduleDay.coverage ? scheduleData.positions.map((position) => (
                       <div className="assignment-row" key={position.name}>
-                        <span>{position.shortName}</span>
+                        <span className="screen-only">{position.shortName}</span>
                         <select
+                          className="screen-only"
                           value={scheduleDay.assignments[position.name] || ''}
                           onChange={(event) => changeAssignment(dateKey(year, month, day), position.name, event.target.value)}
                         >
@@ -695,6 +697,9 @@ function App() {
                               <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
                             ))}
                         </select>
+                        <p className="print-only print-assignment-text">
+                          {position.shortName}: {scheduleDay.assignments[position.name] || 'Open'}
+                        </p>
                       </div>
                     )) : null}
                   </article>

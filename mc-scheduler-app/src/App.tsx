@@ -430,7 +430,7 @@ function App() {
           <label>
             Max shifts/month
             <select value={maxShifts} onChange={(event) => setMaxShifts(Number(event.target.value))}>
-              {[1, 2, 3, 4, 5, 10].map((value) => (
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
                 <option value={value} key={value}>{value}</option>
               ))}
             </select>

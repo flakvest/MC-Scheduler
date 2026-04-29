@@ -210,6 +210,41 @@ function App() {
     setStatusMessage(`${callsign} updated. Existing assignments were left unchanged.`)
   }
 
+  const deleteOperator = (callsign: string) => {
+    if (!window.confirm(`Delete ${callsign}? This will clear their assignments and vacations.`)) return
+
+    let clearedAssignments = 0
+
+    setData((current) => {
+      const vacations = { ...current.vacations }
+      delete vacations[callsign]
+
+      return {
+        ...current,
+        operators: current.operators.filter((operator) => operator.callsign !== callsign),
+        vacations,
+        schedule: Object.entries(current.schedule).reduce<SchedulerData['schedule']>((schedule, [date, day]) => {
+          schedule[date] = {
+            ...day,
+            assignments: Object.entries(day.assignments).reduce<Record<string, string>>((assignments, [position, assignedCallsign]) => {
+              if (assignedCallsign === callsign) {
+                clearedAssignments += 1
+                return assignments
+              }
+
+              assignments[position] = assignedCallsign
+              return assignments
+            }, {}),
+          }
+          return schedule
+        }, {}),
+      }
+    })
+
+    if (editingOperatorCallsign === callsign) resetOperatorForm()
+    setStatusMessage(`${callsign} deleted. Cleared ${clearedAssignments} assignments and removed vacation entries.`)
+  }
+
   const addPosition = () => {
     const positionCode = newPositionCode.trim().toUpperCase()
 
@@ -600,6 +635,7 @@ function App() {
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
                     <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
                     <button type="button" onClick={() => startEditOperator(operator.callsign)}>Edit</button>
+                    <button type="button" className="danger" onClick={() => deleteOperator(operator.callsign)}>Delete</button>
                   </div>
                 ))}
               </div>

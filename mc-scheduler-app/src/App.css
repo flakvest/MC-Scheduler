@@ -125,6 +125,15 @@ select {
   background: #ffffff;
 }
 
+.danger {
+  border-color: #c94b4b;
+  color: #9f2f2f;
+}
+
+.danger:hover {
+  border-color: #9f2f2f;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

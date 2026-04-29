@@ -499,6 +499,12 @@ select {
   background: rgba(16, 33, 47, 0.28);
 }
 
+.drawer-backdrop:hover,
+.drawer-backdrop:focus-visible {
+  background: rgba(16, 33, 47, 0.28);
+  outline: 0;
+}
+
 .print-only {
   display: none;
 }

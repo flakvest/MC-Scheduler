@@ -26,6 +26,8 @@ const monthPrefix = (year: number, month: number) =>
 const dateKey = (year: number, month: number, day: number) =>
   `${monthPrefix(year, month)}-${String(day).padStart(2, '0')}`
 
+type AdminPanel = 'operators' | 'positions' | 'vacations'
+
 function App() {
   const [data, setData] = useState<SchedulerData>(() => loadSchedulerData())
   const [year, setYear] = useState(today.getFullYear())
@@ -40,6 +42,7 @@ function App() {
   const [vacationCallsign, setVacationCallsign] = useState('')
   const [vacationStart, setVacationStart] = useState('')
   const [vacationEnd, setVacationEnd] = useState('')
+  const [activeAdminPanel, setActiveAdminPanel] = useState<AdminPanel | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const scheduleData = useMemo(() => ({
@@ -277,6 +280,10 @@ function App() {
     setStatusMessage(`Vacation removed for ${callsign}.`)
   }
 
+  const adminPanelTitle = activeAdminPanel
+    ? activeAdminPanel.charAt(0).toUpperCase() + activeAdminPanel.slice(1)
+    : 'Admin'
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Application sections">
@@ -335,6 +342,12 @@ function App() {
         </section>
 
         <p className="status-line">{statusMessage}</p>
+
+        <section className="admin-actions" aria-label="Administrative tools">
+          <button type="button" onClick={() => setActiveAdminPanel('operators')}>Operators</button>
+          <button type="button" onClick={() => setActiveAdminPanel('positions')}>Positions</button>
+          <button type="button" onClick={() => setActiveAdminPanel('vacations')}>Vacations</button>
+        </section>
 
         <section className="content-grid">
           <div className="calendar-panel">
@@ -402,7 +415,12 @@ function App() {
             <textarea value={scheduleText} readOnly aria-label="Text schedule preview" />
           </section>
 
-          <aside className="side-panels">
+          <aside className={`admin-drawer ${activeAdminPanel ? 'open' : ''}`} aria-hidden={!activeAdminPanel}>
+            <div className="drawer-heading">
+              <h3>{adminPanelTitle}</h3>
+              <button type="button" onClick={() => setActiveAdminPanel(null)}>Close</button>
+            </div>
+            {activeAdminPanel === 'operators' ? (
             <section className="data-panel" id="operators">
               <div className="panel-heading">
                 <h3>Operators</h3>
@@ -478,7 +496,9 @@ function App() {
                 ))}
               </div>
             </section>
+            ) : null}
 
+            {activeAdminPanel === 'vacations' ? (
             <section className="data-panel" id="vacations">
               <div className="panel-heading">
                 <h3>Vacations</h3>
@@ -518,7 +538,9 @@ function App() {
                 ))}
               </div>
             </section>
+            ) : null}
 
+            {activeAdminPanel === 'positions' ? (
             <section className="data-panel" id="positions">
               <div className="panel-heading">
                 <h3>Positions</h3>
@@ -553,7 +575,9 @@ function App() {
                 ))}
               </div>
             </section>
+            ) : null}
           </aside>
+          {activeAdminPanel ? <button type="button" className="drawer-backdrop" aria-label="Close admin drawer" onClick={() => setActiveAdminPanel(null)} /> : null}
         </section>
       </section>
     </main>

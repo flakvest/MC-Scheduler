@@ -44,6 +44,9 @@ function App() {
   const [vacationStart, setVacationStart] = useState('')
   const [vacationEnd, setVacationEnd] = useState('')
   const [activeAdminPanel, setActiveAdminPanel] = useState<AdminPanel | null>(null)
+  const [maxShifts, setMaxShifts] = useState(5)
+  const [preventBackToBack, setPreventBackToBack] = useState(true)
+  const [limitWeekly, setLimitWeekly] = useState(true)
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const scheduleData = useMemo(() => ({
@@ -77,9 +80,9 @@ function App() {
     const result = smartAssign(scheduleData, {
       year,
       month,
-      maxShifts: 5,
-      preventBackToBack: true,
-      limitWeekly: true,
+      maxShifts,
+      preventBackToBack,
+      limitWeekly,
     })
 
     setData(result.data)
@@ -417,6 +420,37 @@ function App() {
           <button type="button" onClick={() => setActiveAdminPanel('operators')}>Operators</button>
           <button type="button" onClick={() => setActiveAdminPanel('positions')}>Positions</button>
           <button type="button" onClick={() => setActiveAdminPanel('vacations')}>Vacations</button>
+        </section>
+
+        <section className="settings-panel" aria-label="Smart Assign settings">
+          <div>
+            <p className="eyebrow">Smart Assign</p>
+            <h3>Global Settings</h3>
+          </div>
+          <label>
+            Max shifts/month
+            <select value={maxShifts} onChange={(event) => setMaxShifts(Number(event.target.value))}>
+              {[1, 2, 3, 4, 5, 10].map((value) => (
+                <option value={value} key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={preventBackToBack}
+              onChange={(event) => setPreventBackToBack(event.target.checked)}
+            />
+            No back-to-back
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={limitWeekly}
+              onChange={(event) => setLimitWeekly(event.target.checked)}
+            />
+            Max 2 shifts/week
+          </label>
         </section>
 
         <section className="content-grid">

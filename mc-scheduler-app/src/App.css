@@ -176,6 +176,28 @@ select {
   margin-bottom: 20px;
 }
 
+.settings-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 170px repeat(2, minmax(160px, auto));
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #ffffff;
+}
+
+.settings-panel h3 {
+  margin: 0;
+}
+
+.settings-panel label {
+  color: #40515f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -429,7 +451,8 @@ select {
   }
 
   .content-grid,
-  .summary-grid {
+  .summary-grid,
+  .settings-panel {
     grid-template-columns: 1fr;
   }
 
@@ -453,6 +476,7 @@ select {
   .status-line,
   .side-panels,
   .admin-actions,
+  .settings-panel,
   .admin-drawer,
   .drawer-backdrop,
   .output-panel {

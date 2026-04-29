@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { backupToJson, parseBackupJson } from './domain/backupFiles'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, getShiftCount, smartAssign } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
 import { type SchedulerData, type Weekday } from './domain/schedulerTypes'
@@ -35,6 +36,7 @@ function App() {
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
   const [newPositionCode, setNewPositionCode] = useState('')
   const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const scheduleData = useMemo(() => ({
     ...data,
@@ -180,6 +182,30 @@ function App() {
     setStatusMessage(callsign ? `${callsign} assigned to ${positionCode} on ${dateStr}.` : `${positionCode} cleared on ${dateStr}.`)
   }
 
+  const exportBackup = () => {
+    const blob = new Blob([backupToJson(scheduleData)], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `mc-scheduler-backup-${currentPrefix}.json`
+    link.click()
+    URL.revokeObjectURL(link.href)
+    setStatusMessage('Backup exported.')
+  }
+
+  const importBackup = async (file: File | undefined) => {
+    if (!file) return
+
+    try {
+      const imported = parseBackupJson(await file.text())
+      setData(imported)
+      setStatusMessage(`Imported ${imported.operators.length} operators and ${imported.positions.length} positions.`)
+    } catch {
+      setStatusMessage('Import failed. The selected file is not a valid scheduler backup.')
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Application sections">
@@ -203,9 +229,16 @@ function App() {
             <h2>{monthName(year, month)} {year}</h2>
           </div>
           <div className="toolbar" aria-label="Schedule actions">
-            <button type="button" className="secondary">Import</button>
-            <button type="button" className="secondary">Export</button>
+            <button type="button" className="secondary" onClick={() => importInputRef.current?.click()}>Import</button>
+            <button type="button" className="secondary" onClick={exportBackup}>Export</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden-file-input"
+              onChange={(event) => void importBackup(event.target.files?.[0])}
+            />
           </div>
         </header>
 

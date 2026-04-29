@@ -109,6 +109,10 @@ input {
   font: inherit;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
 .primary {
   background: #1f6f78;
   border-color: #1f6f78;

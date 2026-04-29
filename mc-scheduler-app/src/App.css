@@ -99,6 +99,16 @@ button:hover {
   border-color: #5eb1bf;
 }
 
+input {
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid #c6d0d8;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #17212b;
+  font: inherit;
+}
+
 .primary {
   background: #1f6f78;
   border-color: #1f6f78;
@@ -233,6 +243,56 @@ button:hover {
 .side-panels {
   display: grid;
   gap: 16px;
+}
+
+.operator-form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e6ecef;
+}
+
+.operator-form label,
+.operator-form legend {
+  color: #40515f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.operator-form fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.check-row,
+.chip-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.check-row input,
+.chip-check input {
+  width: auto;
+  min-height: auto;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chip-check {
+  min-height: 32px;
+  border: 1px solid #d9e1e7;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #fbfcfd;
 }
 
 .table-list {

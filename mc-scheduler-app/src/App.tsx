@@ -2,9 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { ensureMonthSchedule, getShiftCount, smartAssign } from './domain/schedulerRules'
 import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
-import { type SchedulerData } from './domain/schedulerTypes'
+import { type SchedulerData, type Weekday } from './domain/schedulerTypes'
 
-const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const weekdays: { label: string, value: Weekday }[] = [
+  { label: 'Sun', value: 0 },
+  { label: 'Mon', value: 1 },
+  { label: 'Tue', value: 2 },
+  { label: 'Wed', value: 3 },
+  { label: 'Thu', value: 4 },
+  { label: 'Fri', value: 5 },
+  { label: 'Sat', value: 6 },
+]
 const today = new Date()
 
 const monthName = (year: number, month: number) =>
@@ -21,6 +29,10 @@ function App() {
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
   const [statusMessage, setStatusMessage] = useState('Ready')
+  const [newCallsign, setNewCallsign] = useState('')
+  const [newOperatorAle, setNewOperatorAle] = useState(false)
+  const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
+  const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
 
   const scheduleData = useMemo(() => ({
     ...data,
@@ -59,6 +71,58 @@ function App() {
 
     setData(result.data)
     setStatusMessage(`Smart assign filled ${result.assignedCount} shifts; ${result.blockedCount} could not be filled.`)
+  }
+
+  const toggleUnavailableDay = (weekday: Weekday) => {
+    setNewOperatorUnavailable((current) =>
+      current.includes(weekday) ? current.filter((day) => day !== weekday) : [...current, weekday],
+    )
+  }
+
+  const togglePositionPermission = (positionName: string) => {
+    setNewOperatorPermissions((current) => ({
+      ...current,
+      [positionName]: current[positionName] === false,
+    }))
+  }
+
+  const addOperator = () => {
+    const callsign = newCallsign.trim().toUpperCase()
+
+    if (!callsign) {
+      setStatusMessage('Enter a callsign before adding an operator.')
+      return
+    }
+
+    if (data.operators.some((operator) => operator.callsign === callsign)) {
+      setStatusMessage(`${callsign} already exists.`)
+      return
+    }
+
+    const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
+      permissions[position.name] = position.name === 'EXD'
+        ? newOperatorAle
+        : newOperatorPermissions[position.name] !== false
+      return permissions
+    }, {})
+
+    setData((current) => ({
+      ...current,
+      operators: [
+        ...current.operators,
+        {
+          callsign,
+          ale: newOperatorAle,
+          unavailable: [...newOperatorUnavailable].sort(),
+          positionPermissions,
+        },
+      ],
+    }))
+    setNewCallsign('')
+    setNewOperatorAle(false)
+    setNewOperatorUnavailable([])
+    setNewOperatorPermissions({})
+    setStatusMessage(`${callsign} added.`)
   }
 
   return (
@@ -123,7 +187,7 @@ function App() {
 
             <div className="calendar-grid">
               {weekdays.map((day) => (
-                <div className="weekday" key={day}>{day}</div>
+                <div className="weekday" key={day.label}>{day.label}</div>
               ))}
               {Array.from({ length: firstWeekday }).map((_, index) => (
                 <div className="calendar-day muted" key={`empty-${index}`} />
@@ -154,8 +218,66 @@ function App() {
             <section className="data-panel" id="operators">
               <div className="panel-heading">
                 <h3>Operators</h3>
-                <button type="button">Add</button>
               </div>
+              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); addOperator() }}>
+                <label>
+                  Callsign
+                  <input
+                    type="text"
+                    value={newCallsign}
+                    onChange={(event) => setNewCallsign(event.target.value)}
+                    placeholder="NCS001"
+                  />
+                </label>
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={newOperatorAle}
+                    onChange={(event) => setNewOperatorAle(event.target.checked)}
+                  />
+                  ALE capable
+                </label>
+
+                <fieldset>
+                  <legend>Unavailable days</legend>
+                  <div className="chip-grid">
+                    {weekdays.map((day) => (
+                      <label className="chip-check" key={day.label}>
+                        <input
+                          type="checkbox"
+                          checked={newOperatorUnavailable.includes(day.value)}
+                          onChange={() => toggleUnavailableDay(day.value)}
+                        />
+                        {day.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset>
+                  <legend>Allowed positions</legend>
+                  <div className="chip-grid">
+                    {scheduleData.positions.map((position) => {
+                      const isExd = position.name === 'EXD'
+                      const checked = isExd ? newOperatorAle : newOperatorPermissions[position.name] !== false
+
+                      return (
+                        <label className="chip-check" key={position.name}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={isExd}
+                            onChange={() => togglePositionPermission(position.name)}
+                          />
+                          {position.shortName}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+
+                <button type="submit" className="primary">Add Operator</button>
+              </form>
               <div className="table-list">
                 {scheduleData.operators.length === 0 ? (
                   <p className="empty-state">No operators yet.</p>

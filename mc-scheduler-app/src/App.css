@@ -609,7 +609,9 @@ select {
   .calendar-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    grid-auto-rows: minmax(0.88in, auto);
+    grid-template-rows: auto repeat(6, minmax(0.82in, auto));
+    grid-auto-rows: minmax(0.82in, auto);
+    align-content: start;
     gap: 0;
     border-top: 1px solid #000000;
     border-left: 1px solid #000000;
@@ -619,14 +621,16 @@ select {
     min-height: 0;
     border-right: 1px solid #000000;
     border-bottom: 1px solid #000000;
-    padding: 4px 3px;
+    padding: 3px 3px;
     color: #000000 !important;
-    font-size: 9pt;
+    font-size: 8.5pt;
     font-weight: 700;
+    line-height: 1.05;
   }
 
   .calendar-day {
-    min-height: 0.88in;
+    min-height: 0.82in;
+    box-sizing: border-box;
     border: 0;
     border-right: 1px solid #000000;
     border-bottom: 1px solid #000000;
@@ -640,6 +644,11 @@ select {
   .calendar-day.no-coverage {
     background: #ffffff !important;
     border-color: #000000 !important;
+  }
+
+  .calendar-day.muted {
+    min-height: 0.82in;
+    background: #ffffff !important;
   }
 
   .day-header {

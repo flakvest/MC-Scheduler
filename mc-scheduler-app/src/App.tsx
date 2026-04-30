@@ -415,34 +415,72 @@ function App() {
     setStatusMessage(`Assignments cleared for ${monthName(year, month)} ${year}.`)
   }
 
-  const exportMonthBackup = () => {
-    const blob = new Blob([backupToJson(createMonthSnapshot(scheduleData, currentPrefix))], { type: 'application/json' })
+  const saveTextFile = async (contents: string, filename: string, mimeType: string, status: string) => {
+    const isTauri = '__TAURI_INTERNALS__' in window
+
+    if (isTauri) {
+      const [{ save }, { writeTextFile }] = await Promise.all([
+        import('@tauri-apps/plugin-dialog'),
+        import('@tauri-apps/plugin-fs'),
+      ])
+      const path = await save({ defaultPath: filename })
+
+      if (!path) {
+        setStatusMessage('Save canceled.')
+        return
+      }
+
+      await writeTextFile(path, contents)
+      setStatusMessage(status)
+      return
+    }
+
+    const blob = new Blob([contents], { type: mimeType })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
-    link.download = `mc-scheduler-month-${currentPrefix}.json`
+    link.download = filename
     link.click()
     URL.revokeObjectURL(link.href)
-    setStatusMessage(`Month backup exported for ${monthName(year, month)} ${year}.`)
+    setStatusMessage(status)
   }
 
-  const exportBackup = () => {
-    const blob = new Blob([backupToJson(scheduleData)], { type: 'application/json' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `mc-scheduler-backup-${currentPrefix}.json`
-    link.click()
-    URL.revokeObjectURL(link.href)
-    setStatusMessage('Backup exported.')
+  const exportMonthBackup = async () => {
+    try {
+      await saveTextFile(
+        backupToJson(createMonthSnapshot(scheduleData, currentPrefix)),
+        `mc-scheduler-month-${currentPrefix}.json`,
+        'application/json',
+        `Month backup exported for ${monthName(year, month)} ${year}.`,
+      )
+    } catch {
+      setStatusMessage('Month backup export failed.')
+    }
   }
 
-  const downloadScheduleText = () => {
-    const blob = new Blob([scheduleText], { type: 'text/plain' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `mars-schedule-${currentPrefix}.txt`
-    link.click()
-    URL.revokeObjectURL(link.href)
-    setStatusMessage('Text schedule downloaded.')
+  const exportBackup = async () => {
+    try {
+      await saveTextFile(
+        backupToJson(scheduleData),
+        `mc-scheduler-backup-${currentPrefix}.json`,
+        'application/json',
+        'Backup exported.',
+      )
+    } catch {
+      setStatusMessage('Backup export failed.')
+    }
+  }
+
+  const downloadScheduleText = async () => {
+    try {
+      await saveTextFile(
+        scheduleText,
+        `mars-schedule-${currentPrefix}.txt`,
+        'text/plain',
+        'Text schedule downloaded.',
+      )
+    } catch {
+      setStatusMessage('Text schedule download failed.')
+    }
   }
 
   const printSchedule = () => {

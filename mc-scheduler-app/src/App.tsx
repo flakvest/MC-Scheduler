@@ -524,20 +524,6 @@ function App() {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar" aria-label="Application sections">
-        <div>
-          <p className="eyebrow">MARS</p>
-          <h1>Message Center Scheduler</h1>
-        </div>
-
-        <nav className="nav-list">
-          <a aria-current="page" href="#schedule">Schedule</a>
-          <a href="#operators">Operators</a>
-          <a href="#positions">Positions</a>
-          <a href="#backups">Backups</a>
-        </nav>
-      </aside>
-
       <section className="workspace" id="schedule">
         <header className="topbar">
           <div>

@@ -10,6 +10,7 @@ export type SchedulerStorageInfo = {
   mode: SchedulerStorageMode
   location: string
   dataFile: string
+  yearlyScheduleFolder: string
   backupFolder: string
   canOpenFolder: boolean
 }
@@ -21,6 +22,7 @@ const browserStorageInfo = (): SchedulerStorageInfo => ({
   mode: 'browser',
   location: 'Browser localStorage',
   dataFile: 'Browser localStorage',
+  yearlyScheduleFolder: 'Browser localStorage',
   backupFolder: 'Manual exports only',
   canOpenFolder: false,
 })
@@ -76,6 +78,7 @@ const normalizeStoragePaths = (value: unknown) => {
       dataFile: typeof value[0] === 'string' ? value[0] : 'AppData scheduler.json',
       dataFolder: typeof value[1] === 'string' ? value[1] : 'AppData',
       backupFolder: typeof value[2] === 'string' ? value[2] : 'AppData backups',
+      yearlyScheduleFolder: typeof value[3] === 'string' ? value[3] : 'AppData yearly schedules',
     }
   }
 
@@ -84,6 +87,9 @@ const normalizeStoragePaths = (value: unknown) => {
       dataFile: typeof value.dataFile === 'string' ? value.dataFile : 'AppData scheduler.json',
       dataFolder: typeof value.dataFolder === 'string' ? value.dataFolder : 'AppData',
       backupFolder: typeof value.backupFolder === 'string' ? value.backupFolder : 'AppData backups',
+      yearlyScheduleFolder: typeof value.yearlyScheduleFolder === 'string'
+        ? value.yearlyScheduleFolder
+        : 'AppData yearly schedules',
     }
   }
 
@@ -91,6 +97,7 @@ const normalizeStoragePaths = (value: unknown) => {
     dataFile: 'AppData scheduler.json',
     dataFolder: 'AppData',
     backupFolder: 'AppData backups',
+    yearlyScheduleFolder: 'AppData yearly schedules',
   }
 }
 
@@ -142,6 +149,7 @@ export async function getSchedulerStorageInfo(): Promise<SchedulerStorageInfo> {
       mode: 'appdata',
       location: paths.dataFolder,
       dataFile: paths.dataFile,
+      yearlyScheduleFolder: paths.yearlyScheduleFolder,
       backupFolder: paths.backupFolder,
       canOpenFolder: true,
     }
@@ -150,6 +158,7 @@ export async function getSchedulerStorageInfo(): Promise<SchedulerStorageInfo> {
       mode: 'appdata',
       location: 'AppData',
       dataFile: 'AppData scheduler.json',
+      yearlyScheduleFolder: 'AppData yearly schedules',
       backupFolder: 'AppData backups',
       canOpenFolder: true,
     }
@@ -168,11 +177,11 @@ export async function openSchedulerDataFolder(): Promise<boolean> {
 }
 
 export async function getAppVersion(): Promise<string> {
-  if (!isTauri()) return '0.0.5'
+  if (!isTauri()) return '0.0.7'
 
   try {
     return await getVersion()
   } catch {
-    return '0.0.5'
+    return '0.0.7'
   }
 }

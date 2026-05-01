@@ -1,6 +1,6 @@
 [package]
 name = "mc-scheduler-app"
-version = "0.0.5"
+version = "0.0.7"
 description = "MARS Message Center Scheduler desktop shell"
 license = "UNLICENSED"
 edition = "2021"
@@ -10,6 +10,7 @@ build = "build.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

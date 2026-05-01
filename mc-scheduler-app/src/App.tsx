@@ -47,6 +47,7 @@ function App() {
     mode: 'browser',
     location: 'Browser localStorage',
     dataFile: 'Browser localStorage',
+    yearlyScheduleFolder: 'Browser localStorage',
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
@@ -505,6 +506,31 @@ function App() {
     })
   }
 
+  const zeroizeAllDataNow = () => {
+    setData(emptySchedulerData())
+    setAssignmentIssues([])
+    setActiveAdminPanel(null)
+    setStatusMessage('All scheduler data zeroized.')
+  }
+
+  const confirmReallyZeroizeAllData = () => {
+    setConfirmAction({
+      title: 'Are you REALLY sure?',
+      message: 'This will permanently wipe every operator, position, vacation, assignment, and schedule entry from the app.',
+      confirmLabel: 'Zeroize Everything',
+      onConfirm: zeroizeAllDataNow,
+    })
+  }
+
+  const confirmZeroizeAllData = () => {
+    setConfirmAction({
+      title: 'Are you sure?',
+      message: 'Zeroize wipes ALL scheduler data. This includes operators, positions, vacations, assignments, and historical schedules.',
+      confirmLabel: 'Yes, Continue',
+      onConfirm: confirmReallyZeroizeAllData,
+    })
+  }
+
   const runConfirmAction = () => {
     const action = confirmAction
     if (!action) return
@@ -694,6 +720,7 @@ function App() {
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
             <button type="button" className="secondary danger" onClick={confirmClearCalendarAssignments}>Clear Calendar</button>
+            <button type="button" className="secondary danger" onClick={confirmZeroizeAllData}>Zeroize</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
             <input
               ref={importInputRef}
@@ -733,6 +760,7 @@ function App() {
             <p className="eyebrow">Data location</p>
             <h3>{storageInfo.mode === 'appdata' ? 'AppData folder' : 'Browser localStorage'}</h3>
             <p>{storageInfo.mode === 'appdata' ? storageInfo.dataFile : storageInfo.location}</p>
+            {storageInfo.mode === 'appdata' ? <p>Yearly schedules: {storageInfo.yearlyScheduleFolder}</p> : null}
             <p>Backups: {storageInfo.backupFolder}</p>
           </div>
           <div className="storage-actions">

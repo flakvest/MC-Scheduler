@@ -50,7 +50,7 @@ function App() {
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
-  const [appVersion, setAppVersion] = useState('0.0.2')
+  const [appVersion, setAppVersion] = useState('0.0.5')
   const [newCallsign, setNewCallsign] = useState('')
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
@@ -411,13 +411,21 @@ function App() {
     }
 
     const codeChanged = positionCode !== currentPosition.name || positionCode !== currentPosition.shortName
-    if (
-      codeChanged &&
-      !window.confirm(`Rename position ${currentPosition.shortName} to ${positionCode}? Existing assignments and permissions will be updated.`)
-    ) {
-      setStatusMessage('Position rename canceled.')
+    if (codeChanged) {
+      setConfirmAction({
+        title: `Rename ${currentPosition.shortName}?`,
+        message: `Existing assignments and operator permissions will be updated to use ${positionCode}.`,
+        confirmLabel: 'Rename Position',
+        onConfirm: () => savePositionEditNow(positionCode, codeChanged),
+      })
       return
     }
+
+    savePositionEditNow(positionCode, codeChanged)
+  }
+
+  const savePositionEditNow = (positionCode: string, codeChanged: boolean) => {
+    if (!editingPositionCode) return
 
     const result = editPosition(data, {
       positionCode: editingPositionCode,
@@ -640,7 +648,7 @@ function App() {
     setStatusMessage(`Vacation added for ${normalizedCallsign}.`)
   }
 
-  const deleteVacation = (callsign: string, index: number) => {
+  const deleteVacationNow = (callsign: string, index: number) => {
     setData((current) => {
       const remaining = (current.vacations[callsign] ?? []).filter((_, itemIndex) => itemIndex !== index)
       const vacations = { ...current.vacations }
@@ -654,6 +662,15 @@ function App() {
       }
     })
     setStatusMessage(`Vacation removed for ${callsign}.`)
+  }
+
+  const confirmDeleteVacation = (callsign: string, index: number, start: string, end: string) => {
+    setConfirmAction({
+      title: `Remove vacation for ${callsign}?`,
+      message: `This will remove the vacation entry from ${start} to ${end}.`,
+      confirmLabel: 'Remove Vacation',
+      onConfirm: () => deleteVacationNow(callsign, index),
+    })
   }
 
   const adminPanelTitle = activeAdminPanel
@@ -998,7 +1015,7 @@ function App() {
                     <div className="table-row vacation-row" key={`${callsign}-${vacation.start}-${vacation.end}-${index}`}>
                       <strong>{callsign}</strong>
                       <span>{vacation.start} to {vacation.end}</span>
-                      <button type="button" onClick={() => deleteVacation(callsign, index)}>Remove</button>
+                      <button type="button" onClick={() => confirmDeleteVacation(callsign, index, vacation.start, vacation.end)}>Remove</button>
                     </div>
                   ))
                 ))}

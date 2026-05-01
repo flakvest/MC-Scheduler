@@ -30,6 +30,12 @@ const dateKey = (year: number, month: number, day: number) =>
   `${monthPrefix(year, month)}-${String(day).padStart(2, '0')}`
 
 type AdminPanel = 'operators' | 'positions' | 'vacations'
+type ConfirmAction = {
+  title: string
+  message: string
+  confirmLabel: string
+  onConfirm: () => void
+}
 
 function App() {
   const [data, setData] = useState<SchedulerData>(() => emptySchedulerData())
@@ -59,6 +65,7 @@ function App() {
   const [activeAdminPanel, setActiveAdminPanel] = useState<AdminPanel | null>(null)
   const [smartAssignSettings, setSmartAssignSettings] = useState(() => loadSmartAssignSettings())
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const skipNextSaveRef = useRef(true)
 
@@ -289,9 +296,7 @@ function App() {
     setStatusMessage(`${callsign} updated. Existing assignments were left unchanged.`)
   }
 
-  const deleteOperator = (callsign: string) => {
-    if (!window.confirm(`Delete ${callsign}? This will clear their assignments and vacations.`)) return
-
+  const deleteOperatorNow = (callsign: string) => {
     let clearedAssignments = 0
 
     setData((current) => {
@@ -322,6 +327,15 @@ function App() {
 
     if (editingOperatorCallsign === callsign) resetOperatorForm()
     setStatusMessage(`${callsign} deleted. Cleared ${clearedAssignments} assignments and removed vacation entries.`)
+  }
+
+  const confirmDeleteOperator = (callsign: string) => {
+    setConfirmAction({
+      title: `Delete ${callsign}?`,
+      message: 'This will remove the operator, clear their assignments, and remove their vacation entries.',
+      confirmLabel: 'Delete Operator',
+      onConfirm: () => deleteOperatorNow(callsign),
+    })
   }
 
   const addPosition = () => {
@@ -425,9 +439,7 @@ function App() {
     setStatusMessage(`${positionCode} position updated.`)
   }
 
-  const removePosition = (positionCode: string) => {
-    if (!window.confirm(`Delete ${positionCode}? This will clear its assignments and operator permissions.`)) return
-
+  const removePositionNow = (positionCode: string) => {
     const result = deletePosition(data, positionCode)
     if (result.errors.length > 0) {
       setStatusMessage(result.errors[0])
@@ -437,6 +449,15 @@ function App() {
     setData(result.data)
     if (editingPositionCode === positionCode) resetPositionForm()
     setStatusMessage(`${positionCode} position deleted.`)
+  }
+
+  const confirmRemovePosition = (positionCode: string) => {
+    setConfirmAction({
+      title: `Delete ${positionCode}?`,
+      message: 'This will clear assignments for this position and remove related operator permissions.',
+      confirmLabel: 'Delete Position',
+      onConfirm: () => removePositionNow(positionCode),
+    })
   }
 
   const changeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
@@ -456,9 +477,7 @@ function App() {
     setStatusMessage(coverage ? `Coverage turned on for ${dateStr}.` : `Coverage turned off for ${dateStr}; assignments cleared.`)
   }
 
-  const clearCalendarAssignments = () => {
-    if (!window.confirm(`Clear all assignments for ${monthName(year, month)} ${year}?`)) return
-
+  const clearCalendarAssignmentsNow = () => {
     if (!monthHasAssignments(scheduleData, currentPrefix)) {
       setStatusMessage(`No assignments to clear for ${monthName(year, month)} ${year}.`)
       return
@@ -467,6 +486,23 @@ function App() {
     setData((current) => clearAssignmentsForMonth(current, currentPrefix))
     setAssignmentIssues([])
     setStatusMessage(`Assignments cleared for ${monthName(year, month)} ${year}.`)
+  }
+
+  const confirmClearCalendarAssignments = () => {
+    setConfirmAction({
+      title: `Clear ${monthName(year, month)} ${year}?`,
+      message: 'This will remove all assignments for the selected month. Coverage settings and other months will remain.',
+      confirmLabel: 'Clear Assignments',
+      onConfirm: clearCalendarAssignmentsNow,
+    })
+  }
+
+  const runConfirmAction = () => {
+    const action = confirmAction
+    if (!action) return
+
+    setConfirmAction(null)
+    action.onConfirm()
   }
 
   const openDataFolder = async () => {
@@ -640,7 +676,7 @@ function App() {
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
-            <button type="button" className="secondary danger" onClick={clearCalendarAssignments}>Clear Calendar</button>
+            <button type="button" className="secondary danger" onClick={confirmClearCalendarAssignments}>Clear Calendar</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
             <input
               ref={importInputRef}
@@ -915,7 +951,7 @@ function App() {
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
                     <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
                     <button type="button" onClick={() => startEditOperator(operator.callsign)}>Edit</button>
-                    <button type="button" className="danger" onClick={() => deleteOperator(operator.callsign)}>Delete</button>
+                    <button type="button" className="danger" onClick={() => confirmDeleteOperator(operator.callsign)}>Delete</button>
                   </div>
                 ))}
               </div>
@@ -1006,7 +1042,7 @@ function App() {
                     <strong>{position.shortName}</strong>
                     <span>{position.requiresALE ? 'Requires ALE' : 'No ALE required'}</span>
                     <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
-                    <button type="button" className="danger" onClick={() => removePosition(position.name)}>Delete</button>
+                    <button type="button" className="danger" onClick={() => confirmRemovePosition(position.name)}>Delete</button>
                   </div>
                 ))}
               </div>
@@ -1014,6 +1050,18 @@ function App() {
             ) : null}
           </aside>
           {activeAdminPanel ? <button type="button" className="drawer-backdrop" aria-label="Close admin drawer" onClick={() => setActiveAdminPanel(null)} /> : null}
+          {confirmAction ? (
+            <div className="confirm-backdrop" role="presentation">
+              <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+                <h3 id="confirm-title">{confirmAction.title}</h3>
+                <p>{confirmAction.message}</p>
+                <div className="confirm-actions">
+                  <button type="button" onClick={() => setConfirmAction(null)}>Cancel</button>
+                  <button type="button" className="danger" onClick={runConfirmAction}>{confirmAction.confirmLabel}</button>
+                </div>
+              </section>
+            </div>
+          ) : null}
         </section>
       </section>
     </main>

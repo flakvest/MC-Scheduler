@@ -5,9 +5,9 @@ import { clearAssignmentsForMonth, createMonthSnapshot, monthHasAssignments } fr
 import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
+import { getAppVersion, getSchedulerStorageInfo, loadSchedulerData, openSchedulerDataFolder, saveSchedulerData, type SchedulerStorageInfo } from './domain/schedulerStorage'
+import { emptySchedulerData, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
-import { loadSchedulerData, saveSchedulerData } from './domain/schedulerStorage'
-import { type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 
 const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Sun', value: 0 },
@@ -32,10 +32,19 @@ const dateKey = (year: number, month: number, day: number) =>
 type AdminPanel = 'operators' | 'positions' | 'vacations'
 
 function App() {
-  const [data, setData] = useState<SchedulerData>(() => loadSchedulerData())
+  const [data, setData] = useState<SchedulerData>(() => emptySchedulerData())
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
-  const [statusMessage, setStatusMessage] = useState('Ready')
+  const [statusMessage, setStatusMessage] = useState('Loading scheduler data...')
+  const [storageReady, setStorageReady] = useState(false)
+  const [storageInfo, setStorageInfo] = useState<SchedulerStorageInfo>({
+    mode: 'browser',
+    location: 'Browser localStorage',
+    dataFile: 'Browser localStorage',
+    backupFolder: 'Manual exports only',
+    canOpenFolder: false,
+  })
+  const [appVersion, setAppVersion] = useState('0.0.2')
   const [newCallsign, setNewCallsign] = useState('')
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
@@ -51,6 +60,7 @@ function App() {
   const [smartAssignSettings, setSmartAssignSettings] = useState(() => loadSmartAssignSettings())
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
   const importInputRef = useRef<HTMLInputElement>(null)
+  const skipNextSaveRef = useRef(true)
 
   const scheduleData = useMemo(() => ({
     ...data,
@@ -58,8 +68,52 @@ function App() {
   }), [data, month, year])
 
   useEffect(() => {
-    saveSchedulerData(data)
-  }, [data])
+    let active = true
+
+    const hydrateStorage = async () => {
+      const [loadedData, loadedStorageInfo, loadedAppVersion] = await Promise.all([
+        loadSchedulerData(),
+        getSchedulerStorageInfo(),
+        getAppVersion(),
+      ])
+
+      if (!active) return
+
+      skipNextSaveRef.current = true
+      setData(loadedData)
+      setStorageInfo(loadedStorageInfo)
+      setAppVersion(loadedAppVersion)
+      setStorageReady(true)
+      setStatusMessage(
+        loadedStorageInfo.mode === 'appdata'
+          ? `Loaded scheduler data from ${loadedStorageInfo.location}.`
+          : 'Loaded scheduler data from browser localStorage.',
+      )
+    }
+
+    void hydrateStorage()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!storageReady) return
+
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false
+      return
+    }
+
+    const saveTimer = window.setTimeout(() => {
+      void saveSchedulerData(data).then((saved) => {
+        if (!saved) setStatusMessage('Automatic save failed. Export a backup before closing.')
+      })
+    }, 500)
+
+    return () => window.clearTimeout(saveTimer)
+  }, [data, storageReady])
 
   useEffect(() => {
     saveSmartAssignSettings(smartAssignSettings)
@@ -415,6 +469,16 @@ function App() {
     setStatusMessage(`Assignments cleared for ${monthName(year, month)} ${year}.`)
   }
 
+  const openDataFolder = async () => {
+    if (!storageInfo.canOpenFolder) {
+      setStatusMessage('Data folder access is only available in the desktop app.')
+      return
+    }
+
+    const opened = await openSchedulerDataFolder()
+    setStatusMessage(opened ? `Opened ${storageInfo.location}.` : 'Could not open the data folder.')
+  }
+
   const saveTextFile = async (contents: string, filename: string, mimeType: string, status: string) => {
     const isTauri = '__TAURI_INTERNALS__' in window
 
@@ -559,6 +623,7 @@ function App() {
   const adminPanelTitle = activeAdminPanel
     ? activeAdminPanel.charAt(0).toUpperCase() + activeAdminPanel.slice(1)
     : 'Admin'
+  const storageModeLabel = storageInfo.mode === 'appdata' ? 'AppData JSON' : 'Browser localStorage'
 
   return (
     <main className="app-shell">
@@ -602,8 +667,26 @@ function App() {
           </article>
           <article>
             <span>Storage</span>
-            <strong>Browser JSON</strong>
+            <strong>{storageModeLabel}</strong>
           </article>
+          <article>
+            <span>App Version</span>
+            <strong>v{appVersion}</strong>
+          </article>
+        </section>
+
+        <section className="storage-panel" aria-label="Data storage">
+          <div className="storage-copy">
+            <p className="eyebrow">Data location</p>
+            <h3>{storageInfo.mode === 'appdata' ? 'AppData folder' : 'Browser localStorage'}</h3>
+            <p>{storageInfo.mode === 'appdata' ? storageInfo.dataFile : storageInfo.location}</p>
+            <p>Backups: {storageInfo.backupFolder}</p>
+          </div>
+          <div className="storage-actions">
+            <button type="button" className="secondary" onClick={openDataFolder} disabled={!storageInfo.canOpenFolder}>
+              Open Data Folder
+            </button>
+          </div>
         </section>
 
         <p className="status-line">{statusMessage}</p>

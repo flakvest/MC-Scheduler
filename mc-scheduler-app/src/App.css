@@ -35,8 +35,14 @@
 
 .topbar {
   justify-content: space-between;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 14px;
+}
+
+.toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .topbar h2 {
@@ -65,6 +71,14 @@ button {
 button:hover {
   border-color: #5b9dab;
   background: #f8fbfc;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  border-color: #cad3db;
+  background: #eef2f5;
+  color: #7b8790;
 }
 
 button:focus-visible,
@@ -117,12 +131,13 @@ select {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
 
 .summary-grid article,
+.storage-panel,
 .calendar-panel,
 .output-panel,
 .data-panel {
@@ -135,6 +150,7 @@ select {
   display: grid;
   gap: 4px;
   padding: 12px 14px;
+  min-height: 76px;
 }
 
 .summary-grid span,
@@ -146,6 +162,37 @@ select {
 
 .summary-grid strong {
   font-size: 22px;
+  word-break: break-word;
+}
+
+.storage-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+
+.storage-copy {
+  min-width: 0;
+}
+
+.storage-copy h3 {
+  margin: 0 0 4px;
+}
+
+.storage-copy p {
+  margin: 0;
+  color: #5b6975;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.storage-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .status-line,
@@ -153,6 +200,7 @@ select {
   margin: 0;
   color: #5b6975;
   font-size: 14px;
+  word-break: break-word;
 }
 
 .status-line {
@@ -473,7 +521,6 @@ select {
 
 @media (max-width: 1100px) {
   .content-grid,
-  .summary-grid,
   .settings-panel {
     grid-template-columns: 1fr;
   }
@@ -483,6 +530,11 @@ select {
   .admin-drawer {
     grid-column: auto;
     grid-row: auto;
+  }
+
+  .storage-panel {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .calendar-grid {
@@ -505,6 +557,7 @@ select {
   .sidebar,
   .topbar,
   .summary-grid,
+  .storage-panel,
   .status-line,
   .side-panels,
   .admin-actions,

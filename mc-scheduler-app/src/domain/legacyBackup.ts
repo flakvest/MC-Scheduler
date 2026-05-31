@@ -136,6 +136,7 @@ export function importLegacyBackup(backup: LegacyBackupData): SchedulerData {
     operators: normalizeOperators(backup.operators, positions),
     positions,
     vacations: normalizeVacations(backup.vacations),
+    holidays: [],
     schedule: normalizeSchedule(backup.schedule, positions),
   }
 }

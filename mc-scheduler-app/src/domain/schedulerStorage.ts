@@ -1,6 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { emptySchedulerData, defaultPositions, type SchedulerData, type Schedule, type VacationMap } from './schedulerTypes'
+import { applyHolidaysToData, normalizeHolidays } from './holidayRules'
 
 const STORAGE_KEY = 'mc-scheduler-data-v1'
 
@@ -34,13 +35,14 @@ const normalizeSchedulerData = (value: unknown): SchedulerData => {
 
   if (!isRecord(value)) return fallback
 
-  return {
+  return applyHolidaysToData({
     version: 1,
     operators: Array.isArray(value.operators) ? value.operators : fallback.operators,
     positions: Array.isArray(value.positions) && value.positions.length > 0 ? value.positions : fallback.positions,
     vacations: isRecord(value.vacations) ? value.vacations as VacationMap : fallback.vacations,
+    holidays: normalizeHolidays(value.holidays),
     schedule: isRecord(value.schedule) ? value.schedule as Schedule : fallback.schedule,
-  }
+  })
 }
 
 const parseStoredBrowserData = (): SchedulerData => {
@@ -58,6 +60,7 @@ const hasStoredWork = (data: SchedulerData): boolean =>
   data.operators.length > 0 ||
   JSON.stringify(data.positions) !== JSON.stringify(defaultPositions) ||
   Object.keys(data.vacations).length > 0 ||
+  data.holidays.length > 0 ||
   Object.keys(data.schedule).length > 0
 
 const parseStoredJson = (value: unknown): SchedulerData => {
@@ -177,11 +180,11 @@ export async function openSchedulerDataFolder(): Promise<boolean> {
 }
 
 export async function getAppVersion(): Promise<string> {
-  if (!isTauri()) return '0.0.7'
+  if (!isTauri()) return '0.0.8'
 
   try {
     return await getVersion()
   } catch {
-    return '0.0.7'
+    return '0.0.8'
   }
 }

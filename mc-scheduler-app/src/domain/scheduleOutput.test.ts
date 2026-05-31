@@ -7,6 +7,7 @@ const data: SchedulerData = {
   operators: [],
   positions: defaultPositions,
   vacations: {},
+  holidays: [],
   schedule: {
     '2026-04-01': {
       coverage: true,

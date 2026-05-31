@@ -55,6 +55,7 @@ export function createMonthSnapshot(data: SchedulerData, month: string): Schedul
     operators: data.operators,
     positions: data.positions,
     vacations: data.vacations,
+    holidays: data.holidays,
     schedule: pickScheduleMonth(data.schedule, month),
   }
 }

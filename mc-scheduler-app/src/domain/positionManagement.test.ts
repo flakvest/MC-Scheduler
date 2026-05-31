@@ -14,6 +14,7 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   ],
   positions: defaultPositions,
   vacations: {},
+  holidays: [],
   schedule: {
     '2026-04-01': { coverage: true, assignments: { EXD: 'ALPHA', DW: 'ALPHA' } },
     '2026-04-02': { coverage: true, assignments: { DR: 'ALPHA' } },

@@ -34,6 +34,7 @@ const DEFAULT_SCHEDULER_JSON: &str = r#"{
     }
   ],
   "vacations": {},
+  "holidays": [],
   "schedule": {}
 }"#;
 

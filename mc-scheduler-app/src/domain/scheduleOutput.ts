@@ -8,7 +8,7 @@ const dateKey = (year: number, month: number, day: number) =>
   `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 
 export function generateScheduleText(data: SchedulerData, year: number, month: number) {
-  const schedule = ensureMonthSchedule(data.schedule, year, month)
+  const schedule = ensureMonthSchedule(data.schedule, year, month, data.holidays)
   const daysInMonth = new Date(year, month, 0).getDate()
   const lines = [
     `MARS SCHEDULE: ${monthName(year, month).toUpperCase()} ${year}`,

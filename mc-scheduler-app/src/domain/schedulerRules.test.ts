@@ -31,6 +31,7 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   operators: [operator('ALPHA', true), operator('BRAVO'), operator('CHARLIE', true)],
   positions: defaultPositions,
   vacations: {},
+  holidays: [],
   schedule: {
     '2026-04-01': { coverage: true, assignments: {} },
     '2026-04-02': { coverage: true, assignments: {} },
@@ -46,6 +47,17 @@ describe('scheduler rules', () => {
     expect(schedule['2026-04-01'].coverage).toBe(true)
     expect(schedule['2026-04-04'].coverage).toBe(false)
     expect(schedule['2026-04-05'].coverage).toBe(false)
+  })
+
+  it('turns holiday dates into non-coverage days and clears assignments', () => {
+    const schedule = ensureMonthSchedule({
+      '2026-04-03': { coverage: true, assignments: { EXD: 'ALPHA' } },
+    }, 2026, 4, [
+      { date: '2026-04-03', name: 'Test Holiday', source: 'manual' },
+    ])
+
+    expect(schedule['2026-04-03'].coverage).toBe(false)
+    expect(schedule['2026-04-03'].assignments).toEqual({})
   })
 
   it('blocks operators on unavailable weekdays and vacation dates', () => {

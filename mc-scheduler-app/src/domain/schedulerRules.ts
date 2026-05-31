@@ -6,7 +6,9 @@ import {
   type PositionCode,
   type Schedule,
   type SchedulerData,
+  type Holiday,
 } from './schedulerTypes'
+import { holidayForDate } from './holidayRules'
 
 export type SmartAssignOptions = {
   year: number
@@ -78,7 +80,7 @@ export function isCoverageDay(date: Date) {
   return date.getDay() % 6 !== 0
 }
 
-export function ensureMonthSchedule(schedule: Schedule, year: number, month: number): Schedule {
+export function ensureMonthSchedule(schedule: Schedule, year: number, month: number, holidays: Holiday[] = []): Schedule {
   const nextSchedule = structuredClone(schedule)
   const daysInMonth = new Date(year, month, 0).getDate()
 
@@ -87,7 +89,14 @@ export function ensureMonthSchedule(schedule: Schedule, year: number, month: num
 
     if (!nextSchedule[dateStr]) {
       nextSchedule[dateStr] = {
-        coverage: isCoverageDay(new Date(year, month - 1, day)),
+        coverage: !holidayForDate(holidays, dateStr) && isCoverageDay(new Date(year, month - 1, day)),
+        assignments: {},
+      }
+    }
+
+    if (holidayForDate(holidays, dateStr)) {
+      nextSchedule[dateStr] = {
+        coverage: false,
         assignments: {},
       }
     }
@@ -192,7 +201,7 @@ export function canAssignOperator(
 }
 
 export function smartAssign(data: SchedulerData, options: SmartAssignOptions): SmartAssignResult {
-  const schedule = ensureMonthSchedule(data.schedule, options.year, options.month)
+  const schedule = ensureMonthSchedule(data.schedule, options.year, options.month, data.holidays)
   const nextData = structuredClone({ ...data, schedule })
   const prefix = monthPrefix(options.year, options.month)
   const rankedPositions = [...nextData.positions].sort((a, b) => Number(b.requiresALE) - Number(a.requiresALE))
@@ -242,7 +251,7 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
 }
 
 export function findOpenAssignmentIssues(data: SchedulerData, options: SmartAssignOptions): AssignmentIssue[] {
-  const schedule = ensureMonthSchedule(data.schedule, options.year, options.month)
+  const schedule = ensureMonthSchedule(data.schedule, options.year, options.month, data.holidays)
   const nextData = { ...data, schedule }
   const daysInMonth = new Date(options.year, options.month, 0).getDate()
   const issues: AssignmentIssue[] = []

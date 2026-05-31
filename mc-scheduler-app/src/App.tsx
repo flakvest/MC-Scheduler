@@ -6,7 +6,8 @@ import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
 import { getAppVersion, getSchedulerStorageInfo, loadSchedulerData, openSchedulerDataFolder, saveSchedulerData, type SchedulerStorageInfo } from './domain/schedulerStorage'
-import { emptySchedulerData, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
+import { applyHolidaysToData, fetchFederalHolidays, generateFederalHolidays, holidayForDate, normalizeHolidayName, uniqueHolidays } from './domain/holidayRules'
+import { emptySchedulerData, type Holiday, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
 
 const weekdays: { label: string, value: Weekday }[] = [
@@ -19,6 +20,10 @@ const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Sat', value: 6 },
 ]
 const today = new Date()
+const monthOptions = Array.from({ length: 12 }, (_, index) => ({
+  label: new Date(2000, index, 1).toLocaleString('default', { month: 'long' }),
+  value: index + 1,
+}))
 
 const monthName = (year: number, month: number) =>
   new Date(year, month - 1).toLocaleString('default', { month: 'long' })
@@ -29,7 +34,7 @@ const monthPrefix = (year: number, month: number) =>
 const dateKey = (year: number, month: number, day: number) =>
   `${monthPrefix(year, month)}-${String(day).padStart(2, '0')}`
 
-type AdminPanel = 'operators' | 'positions' | 'vacations'
+type AdminPanel = 'operators' | 'positions' | 'vacations' | 'holidays'
 type ConfirmAction = {
   title: string
   message: string
@@ -51,7 +56,7 @@ function App() {
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
-  const [appVersion, setAppVersion] = useState('0.0.5')
+  const [appVersion, setAppVersion] = useState('0.0.8')
   const [newCallsign, setNewCallsign] = useState('')
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
@@ -63,6 +68,8 @@ function App() {
   const [vacationCallsign, setVacationCallsign] = useState('')
   const [vacationStart, setVacationStart] = useState('')
   const [vacationEnd, setVacationEnd] = useState('')
+  const [holidayName, setHolidayName] = useState('')
+  const [holidayDate, setHolidayDate] = useState('')
   const [activeAdminPanel, setActiveAdminPanel] = useState<AdminPanel | null>(null)
   const [smartAssignSettings, setSmartAssignSettings] = useState(() => loadSmartAssignSettings())
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
@@ -72,7 +79,7 @@ function App() {
 
   const scheduleData = useMemo(() => ({
     ...data,
-    schedule: ensureMonthSchedule(data.schedule, year, month),
+    schedule: ensureMonthSchedule(data.schedule, year, month, data.holidays),
   }), [data, month, year])
 
   useEffect(() => {
@@ -131,7 +138,7 @@ function App() {
   const firstWeekday = new Date(year, month - 1, 1).getDay()
   const trailingBlankDays = (7 - ((firstWeekday + daysInMonth) % 7)) % 7
   const currentPrefix = monthPrefix(year, month)
-  const scheduleText = useMemo(() => generateScheduleText(scheduleData, year, month), [month, scheduleData, year])
+  const scheduleText = generateScheduleText(scheduleData, year, month)
   const openShiftCount = Object.entries(scheduleData.schedule)
     .filter(([date]) => date.startsWith(currentPrefix))
     .reduce((count, [, day]) => {
@@ -139,9 +146,18 @@ function App() {
       const openPositions = scheduleData.positions.filter((position) => !day.assignments[position.name]).length
       return count + openPositions
     }, 0)
+  const currentMonthHolidayCount = scheduleData.holidays
+    .filter((holiday) => holiday.date.startsWith(currentPrefix))
+    .length
 
   const moveMonth = (offset: number) => {
     const next = new Date(year, month - 1 + offset, 1)
+    setYear(next.getFullYear())
+    setMonth(next.getMonth() + 1)
+  }
+
+  const jumpToNextMonth = () => {
+    const next = new Date(today.getFullYear(), today.getMonth() + 1, 1)
     setYear(next.getFullYear())
     setMonth(next.getMonth() + 1)
   }
@@ -699,6 +715,114 @@ function App() {
     })
   }
 
+  const countAssignmentsOnDate = (dateStr: string) =>
+    Object.keys(scheduleData.schedule[dateStr]?.assignments ?? {}).length
+
+  const addHolidayNow = (holiday: Holiday) => {
+    const existingHoliday = scheduleData.holidays.find((item) => item.date === holiday.date)
+
+    setData((current) => applyHolidaysToData({
+      ...current,
+      holidays: uniqueHolidays([
+        ...current.holidays.filter((item) => item.date !== holiday.date),
+        holiday,
+      ]),
+    }))
+    setHolidayName('')
+    setHolidayDate('')
+    setAssignmentIssues([])
+    setStatusMessage(
+      existingHoliday
+        ? `${holiday.name} updated for ${holiday.date}. Coverage is off and assignments were cleared.`
+        : `${holiday.name} added for ${holiday.date}. Coverage is off and assignments were cleared.`,
+    )
+  }
+
+  const confirmAddHoliday = () => {
+    const normalizedName = normalizeHolidayName(holidayName)
+
+    if (!normalizedName) {
+      setStatusMessage('Enter a holiday name before adding it.')
+      return
+    }
+
+    if (!holidayDate) {
+      setStatusMessage('Enter a holiday date before adding it.')
+      return
+    }
+
+    const holiday: Holiday = {
+      date: holidayDate,
+      name: normalizedName,
+      source: 'manual',
+    }
+    const assignmentCount = countAssignmentsOnDate(holiday.date)
+
+    if (assignmentCount > 0) {
+      setConfirmAction({
+        title: `Add ${holiday.name}?`,
+        message: `This will turn off coverage for ${holiday.date} and clear ${assignmentCount} existing assignments on that date.`,
+        confirmLabel: 'Add Holiday',
+        onConfirm: () => addHolidayNow(holiday),
+      })
+      return
+    }
+
+    addHolidayNow(holiday)
+  }
+
+  const applyImportedHolidays = (holidays: Holiday[], sourceLabel: string) => {
+    const assignmentCount = holidays.reduce((count, holiday) => count + countAssignmentsOnDate(holiday.date), 0)
+
+    setData((current) => applyHolidaysToData({
+      ...current,
+      holidays: uniqueHolidays([
+        ...current.holidays.filter((existing) => !holidays.some((holiday) => holiday.date === existing.date)),
+        ...holidays,
+      ]),
+    }))
+    setAssignmentIssues([])
+    setStatusMessage(`${holidays.length} federal holidays imported for ${year} from ${sourceLabel}. Cleared ${assignmentCount} existing assignments.`)
+  }
+
+  const importFederalHolidays = async () => {
+    let holidays = generateFederalHolidays(year)
+    let sourceLabel = 'offline rules'
+
+    try {
+      holidays = await fetchFederalHolidays(year)
+      sourceLabel = 'internet lookup'
+    } catch {
+      setStatusMessage('Internet lookup failed. Using built-in federal holiday rules instead.')
+    }
+
+    const preview = holidays.map((holiday) => `${holiday.date} ${holiday.name}`).join('\n')
+
+    setConfirmAction({
+      title: `Import federal holidays for ${year}?`,
+      message: `This will add or update these holidays and turn off coverage on each date:\n${preview}`,
+      confirmLabel: 'Import Holidays',
+      onConfirm: () => applyImportedHolidays(holidays, sourceLabel),
+    })
+  }
+
+  const deleteHolidayNow = (dateStr: string, name: string) => {
+    setData((current) => ({
+      ...current,
+      holidays: current.holidays.filter((holiday) => holiday.date !== dateStr),
+    }))
+    setStatusMessage(`${name} removed. Coverage was not turned back on automatically.`)
+  }
+
+  const confirmDeleteHoliday = (holiday: Holiday) => {
+    setConfirmAction({
+      title: `Remove ${holiday.name}?`,
+      message: `This removes the holiday marker for ${holiday.date}. Existing coverage settings for that date will be left unchanged.`,
+      confirmLabel: 'Remove Holiday',
+      onConfirm: () => deleteHolidayNow(holiday.date, holiday.name),
+    })
+  }
+
   const adminPanelTitle = activeAdminPanel
     ? activeAdminPanel.charAt(0).toUpperCase() + activeAdminPanel.slice(1)
     : 'Admin'
@@ -708,9 +832,30 @@ function App() {
     <main className="app-shell">
       <section className="workspace" id="schedule">
         <header className="topbar">
-          <div>
+          <div className="planning-month">
             <p className="eyebrow">Planning month</p>
             <h2>{monthName(year, month)} {year}</h2>
+            <div className="month-picker" aria-label="Manual month selection">
+              <label>
+                Month
+                <select value={month} onChange={(event) => setMonth(Number(event.target.value))}>
+                  {monthOptions.map((option) => (
+                    <option value={option.value} key={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Year
+                <input
+                  type="number"
+                  min="1900"
+                  max="2100"
+                  value={year}
+                  onChange={(event) => setYear(Number(event.target.value))}
+                />
+              </label>
+              <button type="button" className="secondary" onClick={jumpToNextMonth}>Next Month</button>
+            </div>
           </div>
           <div className="toolbar" aria-label="Schedule actions">
             <button type="button" className="secondary" onClick={() => importInputRef.current?.click()}>Import</button>
@@ -746,6 +891,10 @@ function App() {
             <strong>{openShiftCount}</strong>
           </article>
           <article>
+            <span>Holidays This Month</span>
+            <strong>{currentMonthHolidayCount}</strong>
+          </article>
+          <article>
             <span>Storage</span>
             <strong>{storageModeLabel}</strong>
           </article>
@@ -776,6 +925,7 @@ function App() {
           <button type="button" onClick={() => setActiveAdminPanel('operators')}>Operators</button>
           <button type="button" onClick={() => setActiveAdminPanel('positions')}>Positions</button>
           <button type="button" onClick={() => setActiveAdminPanel('vacations')}>Vacations</button>
+          <button type="button" onClick={() => setActiveAdminPanel('holidays')}>Holidays</button>
         </section>
 
         <section className="settings-panel" aria-label="Smart Assign settings">
@@ -861,34 +1011,38 @@ function App() {
               ))}
               {Array.from({ length: daysInMonth }).map((_, index) => {
                 const day = index + 1
-                const scheduleDay = scheduleData.schedule[dateKey(year, month, day)]
+                const dateStr = dateKey(year, month, day)
+                const scheduleDay = scheduleData.schedule[dateStr]
+                const holiday = holidayForDate(scheduleData.holidays, dateStr)
 
                 return (
-                  <article className={scheduleDay.coverage ? 'calendar-day' : 'calendar-day no-coverage'} key={day}>
+                  <article className={`${scheduleDay.coverage ? 'calendar-day' : 'calendar-day no-coverage'}${holiday ? ' holiday-day' : ''}`} key={day}>
                     <div className="day-header">
                       <strong className="print-day-number">{day}</strong>
                       <label className="coverage-toggle screen-only">
                         <input
                           type="checkbox"
                           checked={scheduleDay.coverage}
-                          onChange={(event) => changeCoverage(dateKey(year, month, day), event.target.checked)}
+                          disabled={Boolean(holiday)}
+                          onChange={(event) => changeCoverage(dateStr, event.target.checked)}
                         />
-                        {scheduleDay.coverage ? 'Coverage' : 'Off'}
+                        {holiday ? 'Holiday' : scheduleDay.coverage ? 'Coverage' : 'Off'}
                       </label>
                     </div>
+                    {holiday ? <p className="holiday-label">{holiday.name}</p> : null}
                     {scheduleDay.coverage ? scheduleData.positions.map((position) => (
                       <div className="assignment-row" key={position.name}>
                         <span className="screen-only">{position.shortName}</span>
                         <select
                           className="screen-only"
                           value={scheduleDay.assignments[position.name] || ''}
-                          onChange={(event) => changeAssignment(dateKey(year, month, day), position.name, event.target.value)}
+                          onChange={(event) => changeAssignment(dateStr, position.name, event.target.value)}
                         >
                           <option value="">Open</option>
                           {scheduleData.operators
                             .filter((operator) =>
                               operator.callsign === scheduleDay.assignments[position.name] ||
-                              canAssignOperator(scheduleData, dateKey(year, month, day), position, operator.callsign).allowed,
+                              canAssignOperator(scheduleData, dateStr, position, operator.callsign).allowed,
                             )
                             .map((operator) => (
                               <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
@@ -925,7 +1079,14 @@ function App() {
               <div className="panel-heading">
                 <h3>Operators</h3>
               </div>
-              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); editingOperatorCallsign ? saveOperatorEdit() : addOperator() }}>
+              <form
+                className="operator-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (editingOperatorCallsign) saveOperatorEdit()
+                  else addOperator()
+                }}
+              >
                 <label>
                   Callsign
                   <input
@@ -1051,12 +1212,59 @@ function App() {
             </section>
             ) : null}
 
+            {activeAdminPanel === 'holidays' ? (
+            <section className="data-panel" id="holidays">
+              <div className="panel-heading">
+                <h3>Holidays</h3>
+              </div>
+              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); confirmAddHoliday() }}>
+                <label>
+                  Holiday name
+                  <input
+                    type="text"
+                    value={holidayName}
+                    onChange={(event) => setHolidayName(event.target.value)}
+                    placeholder="Independence Day"
+                  />
+                </label>
+                <label>
+                  Date
+                  <input type="date" value={holidayDate} onChange={(event) => setHolidayDate(event.target.value)} />
+                </label>
+                <div className="form-actions">
+                  <button type="submit" className="primary">Add Holiday</button>
+                  <button type="button" onClick={() => void importFederalHolidays()}>Import Federal Holidays</button>
+                </div>
+              </form>
+
+              <div className="table-list">
+                {scheduleData.holidays.length === 0 ? (
+                  <p className="empty-state">No holidays entered.</p>
+                ) : scheduleData.holidays.map((holiday) => (
+                  <div className="table-row holiday-row" key={holiday.date}>
+                    <strong>{holiday.name}</strong>
+                    <span>{holiday.date}</span>
+                    <span>{holiday.source}</span>
+                    <button type="button" onClick={() => confirmDeleteHoliday(holiday)}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+            ) : null}
+
             {activeAdminPanel === 'positions' ? (
             <section className="data-panel" id="positions">
               <div className="panel-heading">
                 <h3>Positions</h3>
               </div>
-              <form className="operator-form" onSubmit={(event) => { event.preventDefault(); editingPositionCode ? savePositionEdit() : addPosition() }}>
+              <form
+                className="operator-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (editingPositionCode) savePositionEdit()
+                  else addPosition()
+                }}
+              >
                 <label>
                   Short code
                   <input

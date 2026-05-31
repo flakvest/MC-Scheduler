@@ -17,6 +17,7 @@ const baseData: SchedulerData = {
   vacations: {
     ALPHA: [{ start: '2026-04-10', end: '2026-04-12' }],
   },
+  holidays: [],
   schedule: {
     '2026-04-01': {
       coverage: true,

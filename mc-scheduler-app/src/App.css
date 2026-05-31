@@ -50,6 +50,40 @@
   line-height: 1.15;
 }
 
+.planning-month {
+  min-width: min(100%, 520px);
+}
+
+.month-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.month-picker label {
+  display: grid;
+  gap: 4px;
+  min-width: 130px;
+  color: #40515f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.month-picker label:first-child {
+  min-width: 170px;
+}
+
+.month-picker input,
+.month-picker select {
+  min-height: 34px;
+}
+
+.month-picker button {
+  min-height: 34px;
+}
+
 .toolbar,
 .month-controls {
   gap: 8px;
@@ -334,6 +368,11 @@ select {
   background: #edf1f3;
 }
 
+.calendar-day.holiday-day {
+  border-color: #d3b45d;
+  background: #fff6db;
+}
+
 .day-header,
 .assignment-row,
 .table-row {
@@ -359,6 +398,15 @@ select {
 .coverage-toggle input {
   width: auto;
   min-height: auto;
+}
+
+.holiday-label {
+  margin: 0;
+  color: #6f5313;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  word-break: break-word;
 }
 
 .assignment-row {
@@ -429,6 +477,7 @@ select {
 
 .form-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -458,6 +507,14 @@ select {
   padding-bottom: 8px;
 }
 
+.holiday-row,
+.vacation-row {
+  align-items: flex-start;
+  flex-direction: column;
+  padding-bottom: 8px;
+}
+
+.holiday-row button,
 .vacation-row button {
   min-height: 28px;
   padding: 4px 7px;
@@ -541,6 +598,7 @@ select {
 .confirm-dialog p {
   margin: 0;
   color: #344553;
+  white-space: pre-line;
 }
 
 .confirm-actions {

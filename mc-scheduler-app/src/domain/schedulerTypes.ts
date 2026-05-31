@@ -24,6 +24,14 @@ export type Vacation = {
 
 export type VacationMap = Record<Callsign, Vacation[]>
 
+export type HolidaySource = 'manual' | 'generated' | 'lookup'
+
+export type Holiday = {
+  date: IsoDate
+  name: string
+  source: HolidaySource
+}
+
 export type ScheduleDay = {
   coverage: boolean
   assignments: Record<PositionCode, Callsign>
@@ -36,6 +44,7 @@ export type SchedulerData = {
   operators: Operator[]
   positions: Position[]
   vacations: VacationMap
+  holidays: Holiday[]
   schedule: Schedule
 }
 
@@ -48,6 +57,7 @@ export type LegacyBackupData = {
   operators?: unknown[]
   positions?: unknown[]
   vacations?: unknown
+  holidays?: unknown
   schedule?: Record<IsoDate, LegacyScheduleDay>
 }
 
@@ -66,5 +76,6 @@ export const emptySchedulerData = (): SchedulerData => ({
   operators: [],
   positions: defaultPositions,
   vacations: {},
+  holidays: [],
   schedule: {},
 })

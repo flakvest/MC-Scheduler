@@ -138,6 +138,8 @@ export function importLegacyBackup(backup: LegacyBackupData): SchedulerData {
     version: 2,
     regionName: '',
     setupComplete: true,
+    backToBackPolicy: 'avoid',
+    weekStartsOn: 1,
     operators: normalizeOperators(backup.operators, positions),
     positions,
     vacations: normalizeVacations(backup.vacations),

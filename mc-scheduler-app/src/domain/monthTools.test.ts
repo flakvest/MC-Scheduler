@@ -7,6 +7,8 @@ const baseData: SchedulerData = {
   version: 2,
   regionName: '',
   setupComplete: true,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
   operators: [
     {
       callsign: 'ALPHA',
@@ -77,5 +79,25 @@ describe('month tools', () => {
     expect(parsed.operators).toEqual(baseData.operators)
     expect(parsed.positions).toEqual(baseData.positions)
     expect(parsed.vacations).toEqual(baseData.vacations)
+    expect(parsed.backToBackPolicy).toBe('avoid')
+    expect(parsed.weekStartsOn).toBe(1)
+  })
+
+  it('keeps a weekly seat and an allow back-to-back rule in a month snapshot', () => {
+    const weekly = {
+      ...baseData,
+      backToBackPolicy: 'allow' as const,
+      weekStartsOn: 0 as const,
+      positions: baseData.positions.map((position) => (
+        position.name === 'EXD' ? { ...position, assignmentPeriod: 'weekly' as const } : position
+      )),
+    }
+    const parsed = parseBackupJson(JSON.stringify(createMonthSnapshot(weekly, '2026-04')))
+
+    expect(parsed.backToBackPolicy).toBe('allow')
+    expect(parsed.weekStartsOn).toBe(0)
+    expect(parsed.positions.find((position) => position.name === 'EXD')?.assignmentPeriod).toBe('weekly')
+    expect(parsed.schedule['2026-05-01']).toBeUndefined()
+    expect(parsed.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
   })
 })

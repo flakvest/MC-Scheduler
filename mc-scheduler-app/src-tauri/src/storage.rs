@@ -17,6 +17,8 @@ const DEFAULT_SCHEDULER_JSON: &str = r#"{
   "version": 2,
   "regionName": "",
   "setupComplete": false,
+  "backToBackPolicy": "avoid",
+  "weekStartsOn": 1,
   "operators": [],
   "positions": [],
   "vacations": {},

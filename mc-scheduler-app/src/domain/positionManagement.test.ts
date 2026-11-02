@@ -6,6 +6,8 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   version: 2,
   regionName: '',
   setupComplete: true,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
   operators: [
     {
       callsign: 'ALPHA',
@@ -77,6 +79,19 @@ describe('position management', () => {
 
     expect(result.errors).toEqual(['Channel name must be exactly 4 letters or numbers, such as AB12.'])
     expect(result.data).toBe(data)
+  })
+
+  it('can switch a position between daily and weekly', () => {
+    const data = schedulerData()
+
+    const result = editPosition(data, {
+      positionCode: 'DW',
+      updates: { assignmentPeriod: 'weekly' },
+    })
+
+    expect(result.errors).toEqual([])
+    expect(result.data.positions.find((position) => position.name === 'DW')?.assignmentPeriod).toBe('weekly')
+    expect(result.data.positions.find((position) => position.name === 'EXD')?.assignmentPeriod).toBe('daily')
   })
 
   it('stores a valid channel name in uppercase', () => {

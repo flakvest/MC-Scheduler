@@ -36,6 +36,8 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   version: 2,
   regionName: '',
   setupComplete: true,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
   operators: [operator('ALPHA', true), operator('BRAVO'), operator('CHARLIE', true)],
   positions: defaultPositions,
   vacations: {},
@@ -443,6 +445,244 @@ describe('no back-to-back looks at both neighboring days', () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }
+  })
+})
+
+const weekdaySchedule = (...months: number[]) =>
+  months.reduce<Schedule>((schedule, month) => ensureMonthSchedule(schedule, 2026, month), {})
+
+const weeklyExd = { ...exdPosition, assignmentPeriod: 'weekly' as const }
+
+const openLimits = {
+  maxShifts: 20,
+  preventBackToBack: false,
+  maxShiftsPerWeek: 10,
+}
+
+describe('back-to-back policy', () => {
+  it('allows consecutive days when the policy is off and still keeps one seat per person per day', () => {
+    const data = schedulerData({
+      operators: [operator('ALPHA', true)],
+      positions: [dwPosition],
+      backToBackPolicy: 'allow',
+      schedule: weekdaySchedule(4),
+    })
+
+    const allowed = smartAssign(data, { year: 2026, month: 4, ...openLimits })
+    expect(allowed.data.schedule['2026-04-01'].assignments.DW).toBe('ALPHA')
+    expect(allowed.data.schedule['2026-04-02'].assignments.DW).toBe('ALPHA')
+
+    const blocked = smartAssign(data, { year: 2026, month: 4, ...openLimits, preventBackToBack: true })
+    expect(blocked.data.schedule['2026-04-01'].assignments.DW).toBe('ALPHA')
+    expect(blocked.data.schedule['2026-04-02'].assignments.DW).toBeUndefined()
+
+    const sameDay = schedulerData({
+      schedule: { '2026-04-01': { coverage: true, assignments: { EXD: 'ALPHA' } } },
+    })
+    expect(canAssignOperator(sameDay, '2026-04-01', dwPosition, 'ALPHA', openLimits)).toEqual({
+      allowed: false,
+      reason: 'Operator is already assigned that day.',
+    })
+  })
+
+  it('still allows Friday and the following Monday when consecutive days are avoided', () => {
+    const data = schedulerData({
+      schedule: { '2026-04-03': { coverage: true, assignments: { DW: 'ALPHA' } } },
+    })
+
+    expect(canAssignOperator(data, '2026-04-06', dwPosition, 'ALPHA', {
+      ...openLimits,
+      preventBackToBack: true,
+    }).allowed).toBe(true)
+  })
+
+  it('stops Check Issues from treating consecutive days as a problem when back-to-back is allowed', () => {
+    const data = schedulerData({
+      operators: [operator('ALPHA', true)],
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+        '2026-04-02': { coverage: true, assignments: {} },
+      },
+    })
+    const limits = { year: 2026, month: 4, maxShifts: 10, maxShiftsPerWeek: 10 }
+
+    const avoided = findOpenAssignmentIssues(data, { ...limits, preventBackToBack: true })
+    const allowed = findOpenAssignmentIssues(data, { ...limits, preventBackToBack: false })
+    const reasonFor = (issues: { date: string, position: string, reason: string }[]) =>
+      issues.find((issue) => issue.date === '2026-04-02' && issue.position === 'DW')?.reason
+
+    expect(reasonFor(avoided)).toContain('previous day')
+    expect(reasonFor(allowed)).not.toContain('previous day')
+  })
+})
+
+describe('weekly assignment', () => {
+  it('gives one operator every coverage day in the week, including the days in the previous month', () => {
+    const data = schedulerData({
+      positions: [weeklyExd],
+      weekStartsOn: 1,
+      schedule: weekdaySchedule(3, 4),
+    })
+
+    const result = assignOperator(data, '2026-04-01', 'EXD', 'ALPHA')
+
+    expect(result.check.allowed).toBe(true)
+    expect(result.data.schedule['2026-03-30'].assignments.EXD).toBe('ALPHA')
+    expect(result.data.schedule['2026-03-31'].assignments.EXD).toBe('ALPHA')
+    expect(result.data.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+    expect(result.data.schedule['2026-04-03'].assignments.EXD).toBe('ALPHA')
+    expect(result.data.schedule['2026-04-04'].assignments.EXD).toBeUndefined()
+    expect(result.data.schedule['2026-04-06'].assignments.EXD).toBeUndefined()
+
+    const cleared = assignOperator(result.data, '2026-04-02', 'EXD', '')
+    expect(cleared.data.schedule['2026-03-30'].assignments.EXD).toBeUndefined()
+    expect(cleared.data.schedule['2026-04-03'].assignments.EXD).toBeUndefined()
+  })
+
+  it('groups a coverage Sunday with the previous week or the next week based on the week start', () => {
+    const schedule = weekdaySchedule(3, 4)
+    schedule['2026-04-05'] = { coverage: true, assignments: {} }
+    const monday = assignOperator(schedulerData({
+      positions: [weeklyExd],
+      weekStartsOn: 1,
+      schedule,
+    }), '2026-04-03', 'EXD', 'ALPHA')
+    const sunday = assignOperator(schedulerData({
+      positions: [weeklyExd],
+      weekStartsOn: 0,
+      schedule,
+    }), '2026-04-06', 'EXD', 'ALPHA')
+
+    expect(monday.data.schedule['2026-04-05'].assignments.EXD).toBe('ALPHA')
+    expect(monday.data.schedule['2026-04-06'].assignments.EXD).toBeUndefined()
+    expect(sunday.data.schedule['2026-04-05'].assignments.EXD).toBe('ALPHA')
+    expect(sunday.data.schedule['2026-04-10'].assignments.EXD).toBe('ALPHA')
+    expect(sunday.data.schedule['2026-04-03'].assignments.EXD).toBeUndefined()
+  })
+
+  it('skips a holiday and a day marked off without splitting the rest of the week', () => {
+    const schedule = weekdaySchedule(3, 4)
+    schedule['2026-04-02'] = { coverage: false, assignments: {} }
+    const offDay = assignOperator(schedulerData({
+      positions: [weeklyExd],
+      schedule,
+    }), '2026-04-01', 'EXD', 'ALPHA')
+
+    expect(offDay.data.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+    expect(offDay.data.schedule['2026-04-02'].assignments.EXD).toBeUndefined()
+    expect(offDay.data.schedule['2026-04-03'].assignments.EXD).toBe('ALPHA')
+
+    const holiday = smartAssign(schedulerData({
+      positions: [weeklyExd],
+      operators: [operator('ALPHA', true)],
+      holidays: [{ date: '2026-04-08', name: 'Office Closed', source: 'manual' }],
+      backToBackPolicy: 'allow',
+      schedule: weekdaySchedule(4),
+    }), { year: 2026, month: 4, ...openLimits })
+
+    expect(holiday.data.schedule['2026-04-06'].assignments.EXD).toBe('ALPHA')
+    expect(holiday.data.schedule['2026-04-07'].assignments.EXD).toBe('ALPHA')
+    expect(holiday.data.schedule['2026-04-08'].coverage).toBe(false)
+    expect(holiday.data.schedule['2026-04-08'].assignments).toEqual({})
+    expect(holiday.data.schedule['2026-04-09'].assignments.EXD).toBe('ALPHA')
+    expect(holiday.data.schedule['2026-04-10'].assignments.EXD).toBe('ALPHA')
+  })
+
+  it('treats back-to-back as the previous or next week and leaves a split week alone', () => {
+    const schedule = weekdaySchedule(3, 4)
+    for (const date of ['2026-03-23', '2026-03-24', '2026-03-25', '2026-03-26', '2026-03-27']) {
+      schedule[date] = { coverage: true, assignments: { EXD: 'ALPHA' } }
+    }
+    const data = schedulerData({
+      positions: [weeklyExd],
+      operators: [operator('ALPHA', true), operator('BRAVO', true)],
+      schedule,
+    })
+
+    const manual = assignOperator(data, '2026-04-01', 'EXD', 'ALPHA')
+    expect(manual.check.allowed).toBe(true)
+    expect(manual.data.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+
+    const avoided = smartAssign(data, {
+      year: 2026,
+      month: 4,
+      maxShifts: 20,
+      preventBackToBack: true,
+      maxShiftsPerWeek: 2,
+    })
+    expect(avoided.data.schedule['2026-04-01'].assignments.EXD).toBe('BRAVO')
+    expect(avoided.data.schedule['2026-04-03'].assignments.EXD).toBe('BRAVO')
+    expect(avoided.data.schedule['2026-04-06'].assignments.EXD).toBe('ALPHA')
+
+    const allowed = smartAssign({ ...data, operators: [operator('ALPHA', true)] }, {
+      year: 2026,
+      month: 4,
+      ...openLimits,
+    })
+    expect(allowed.data.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+    expect(allowed.data.schedule['2026-04-06'].assignments.EXD).toBe('ALPHA')
+
+    const splitSchedule = weekdaySchedule(4)
+    splitSchedule['2026-04-01'] = { coverage: true, assignments: { EXD: 'ALPHA' } }
+    splitSchedule['2026-04-02'] = { coverage: true, assignments: { EXD: 'BRAVO' } }
+    const split = smartAssign(schedulerData({
+      positions: [weeklyExd],
+      schedule: splitSchedule,
+    }), { year: 2026, month: 4, ...openLimits })
+
+    expect(split.data.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+    expect(split.data.schedule['2026-04-02'].assignments.EXD).toBe('BRAVO')
+    expect(split.data.schedule['2026-04-03'].assignments.EXD).toBeUndefined()
+    expect(split.issues).toContainEqual(expect.objectContaining({
+      position: 'EXD',
+      reason: 'This week is split between more than one operator.',
+    }))
+    expect(findOpenAssignmentIssues(split.data, { year: 2026, month: 4, ...openLimits })).toContainEqual(
+      expect.objectContaining({ reason: 'This week is split between more than one operator.' }),
+    )
+  })
+
+  it('refuses a weekly hand pick that would put someone on two seats, and does not change the week', () => {
+    const schedule = weekdaySchedule(3, 4)
+    schedule['2026-04-02'] = { coverage: true, assignments: { DW: 'ALPHA' } }
+    const data = schedulerData({ positions: [weeklyExd, dwPosition], schedule })
+
+    const result = assignOperator(data, '2026-04-01', 'EXD', 'ALPHA')
+
+    expect(result.check.allowed).toBe(false)
+    expect(result.data.schedule['2026-04-01'].assignments.EXD).toBeUndefined()
+    expect(result.data.schedule['2026-04-03'].assignments.EXD).toBeUndefined()
+    expect(result.data.schedule['2026-03-30'].assignments.EXD).toBeUndefined()
+    expect(result.data.schedule['2026-04-02'].assignments.DW).toBe('ALPHA')
+  })
+
+  it('counts weekly coverage days toward the monthly maximum and not the rolling weekly maximum', () => {
+    const schedule = weekdaySchedule(4)
+    for (const date of Object.keys(schedule)) {
+      if (date < '2026-04-06' || date > '2026-04-10') {
+        schedule[date] = { coverage: false, assignments: {} }
+      }
+    }
+    const data = schedulerData({
+      positions: [weeklyExd],
+      operators: [operator('ALPHA', true)],
+      schedule,
+    })
+
+    const overMonth = smartAssign(data, { year: 2026, month: 4, ...openLimits, maxShifts: 4 })
+    expect(overMonth.data.schedule['2026-04-06'].assignments.EXD).toBeUndefined()
+    expect(overMonth.issues[0].reason).toContain('monthly')
+
+    const underWeeklyCap = smartAssign(data, {
+      year: 2026,
+      month: 4,
+      maxShifts: 5,
+      preventBackToBack: false,
+      maxShiftsPerWeek: 2,
+    })
+    expect(underWeeklyCap.data.schedule['2026-04-06'].assignments.EXD).toBe('ALPHA')
+    expect(underWeeklyCap.data.schedule['2026-04-10'].assignments.EXD).toBe('ALPHA')
+    expect(underWeeklyCap.assignedCount).toBe(5)
   })
 })
 

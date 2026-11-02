@@ -3,6 +3,7 @@ import {
   emptySchedulerData,
   region4ExamplePositions,
   type Operator,
+  type BackToBackPolicy,
   type Position,
   type PositionType,
   type Schedule,
@@ -55,6 +56,7 @@ export function positionFromRaw(value: unknown, index: number): Position | null 
     shortName: name,
     displayName: displayNameFrom(value.displayName, name),
     type,
+    assignmentPeriod: value.assignmentPeriod === 'weekly' ? 'weekly' : 'daily',
     channel,
     sortOrder: finiteSortOrder(value.sortOrder, index + 1),
   }
@@ -144,11 +146,14 @@ export function migrateSchedulerData(value: unknown): { data: SchedulerData, mig
   if (!isRecord(value)) return { data: emptySchedulerData(), migrated: false }
 
   const sourceVersion = value.version === 2 ? 2 : 1
-  const positions = Array.isArray(value.positions)
+  const positions = (Array.isArray(value.positions)
     ? value.positions
       .map((position, index) => positionFromRaw(position, index))
       .filter((position): position is Position => position !== null)
     : sourceVersion === 1 ? region4ExamplePositions() : []
+  ).map((position) => (
+    sourceVersion === 1 ? { ...position, assignmentPeriod: 'daily' as const } : position
+  ))
   const operators = Array.isArray(value.operators)
     ? value.operators
       .map((operator) => operatorFromRaw(operator))
@@ -161,6 +166,12 @@ export function migrateSchedulerData(value: unknown): { data: SchedulerData, mig
   const setupComplete = typeof value.setupComplete === 'boolean'
     ? value.setupComplete
     : sourceVersion === 1 || positions.length > 0 || operators.length > 0 || hasScheduleWork(schedule)
+  const backToBackPolicy: BackToBackPolicy = sourceVersion === 1
+    ? 'avoid'
+    : value.backToBackPolicy === 'allow' ? 'allow' : 'avoid'
+  const weekStartsOn = sourceVersion === 1
+    ? 1
+    : normalizeWeekdays([value.weekStartsOn])[0] ?? 1
 
   return {
     migrated: sourceVersion === 1,
@@ -168,6 +179,8 @@ export function migrateSchedulerData(value: unknown): { data: SchedulerData, mig
       version: 2,
       regionName,
       setupComplete,
+      backToBackPolicy,
+      weekStartsOn,
       operators,
       positions,
       vacations,

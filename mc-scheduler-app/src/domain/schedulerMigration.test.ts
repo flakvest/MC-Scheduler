@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseBackupJson } from './backupFiles'
 import { canAssignOperator } from './schedulerRules'
 import { migrateSchedulerData, normalizeChannel } from './schedulerMigration'
-import { region4ExamplePositions, type SchedulerData } from './schedulerTypes'
+import { emptySchedulerData, region4ExamplePositions, type SchedulerData } from './schedulerTypes'
 
 const dw = region4ExamplePositions()[1]
 
@@ -10,6 +10,8 @@ const base = (positions = region4ExamplePositions()): SchedulerData => ({
   version: 2,
   regionName: '',
   setupComplete: true,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
   operators: [
     {
       callsign: 'ALPHA',
@@ -61,11 +63,13 @@ describe('schema v2 migration', () => {
     expect(migrated.migrated).toBe(true)
     expect(migrated.data.version).toBe(2)
     expect(migrated.data.setupComplete).toBe(true)
-    expect(migrated.data.positions.map((position) => [position.name, position.type, position.channel])).toEqual([
-      ['EXD', 'ale', ''],
-      ['DW', 'fixed', ''],
-      ['DR', 'fixed', ''],
+    expect(migrated.data.positions.map((position) => [position.name, position.type, position.channel, position.assignmentPeriod])).toEqual([
+      ['EXD', 'ale', '', 'daily'],
+      ['DW', 'fixed', '', 'daily'],
+      ['DR', 'fixed', '', 'daily'],
     ])
+    expect(migrated.data.backToBackPolicy).toBe('avoid')
+    expect(migrated.data.weekStartsOn).toBe(1)
     expect(migrated.data.operators[0]).toMatchObject({ callsign: 'N0CALL', ale: true })
     expect(migrated.data.schedule['2026-04-01'].assignments).toEqual({ EXD: 'N0CALL', DW: 'N0CALL' })
     expect(migrated.data.schedule['2026-04-02'].assignments.DR).toBe('N0CALL')
@@ -102,9 +106,9 @@ describe('channel names', () => {
 
 describe('multiple ALE seats', () => {
   const aleSeats = [
-    { name: 'EXD', shortName: 'EXD', displayName: 'EXD', type: 'ale' as const, channel: '', sortOrder: 1 },
-    { name: 'NET1', shortName: 'NET1', displayName: 'Net One', type: 'fixed' as const, channel: 'A1B2', sortOrder: 2 },
-    { name: 'ALE2', shortName: 'ALE2', displayName: 'Second ALE', type: 'ale' as const, channel: '', sortOrder: 3 },
+    { name: 'EXD', shortName: 'EXD', displayName: 'EXD', type: 'ale' as const, assignmentPeriod: 'daily' as const, channel: '', sortOrder: 1 },
+    { name: 'NET1', shortName: 'NET1', displayName: 'Net One', type: 'fixed' as const, assignmentPeriod: 'daily' as const, channel: 'A1B2', sortOrder: 2 },
+    { name: 'ALE2', shortName: 'ALE2', displayName: 'Second ALE', type: 'ale' as const, assignmentPeriod: 'daily' as const, channel: '', sortOrder: 3 },
   ]
 
   it('requires ALE qualification for every ALE seat and still allows only one seat per day', () => {
@@ -143,7 +147,75 @@ describe('legacy Big Top Delta import', () => {
 
     expect(parsed.positions[0].name).toBe('EXD')
     expect(parsed.positions[0].type).toBe('ale')
+    expect(parsed.positions[0].assignmentPeriod).toBe('daily')
+    expect(parsed.backToBackPolicy).toBe('avoid')
+    expect(parsed.weekStartsOn).toBe(1)
     expect(parsed.operators[0].ale).toBe(true)
     expect(parsed.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+  })
+})
+
+describe('scheduling rule defaults', () => {
+  it('keeps an older file on daily seats, avoid back-to-back, and Monday even if it claims otherwise', () => {
+    const migrated = migrateSchedulerData({
+      version: 1,
+      backToBackPolicy: 'allow',
+      weekStartsOn: 0,
+      operators: [],
+      positions: [{ name: 'EXD', shortName: 'EXD', requiresALE: true, assignmentPeriod: 'weekly' }],
+      schedule: {},
+    })
+
+    expect(migrated.data.backToBackPolicy).toBe('avoid')
+    expect(migrated.data.weekStartsOn).toBe(1)
+    expect(migrated.data.positions[0].assignmentPeriod).toBe('daily')
+  })
+
+  it('keeps a current file that allows back-to-back and uses a weekly seat', () => {
+    const migrated = migrateSchedulerData({
+      version: 2,
+      backToBackPolicy: 'allow',
+      weekStartsOn: 0,
+      setupComplete: true,
+      operators: [],
+      positions: [{
+        name: 'EXD',
+        shortName: 'EXD',
+        displayName: 'EXD',
+        type: 'ale',
+        assignmentPeriod: 'weekly',
+        channel: '',
+        sortOrder: 1,
+      }],
+      schedule: {},
+    })
+
+    expect(migrated.migrated).toBe(false)
+    expect(migrated.data.backToBackPolicy).toBe('allow')
+    expect(migrated.data.weekStartsOn).toBe(0)
+    expect(migrated.data.positions[0].assignmentPeriod).toBe('weekly')
+  })
+
+  it('fills a current month file that has no scheduling rules with daily, avoid, and Monday', () => {
+    const parsed = parseBackupJson(JSON.stringify({
+      version: 2,
+      operators: [],
+      positions: [{ name: 'DW', shortName: 'DW', displayName: 'DeltaWhite', type: 'fixed', channel: '', sortOrder: 2 }],
+      schedule: { '2026-04-06': { coverage: true, assignments: { DW: 'ALPHA' } } },
+    }))
+
+    expect(parsed.backToBackPolicy).toBe('avoid')
+    expect(parsed.weekStartsOn).toBe(1)
+    expect(parsed.positions[0].assignmentPeriod).toBe('daily')
+    expect(parsed.schedule['2026-04-06'].assignments.DW).toBe('ALPHA')
+  })
+
+  it('loads the Region 4 example as daily seats under the avoid and Monday defaults', () => {
+    expect(region4ExamplePositions().map((position) => position.assignmentPeriod)).toEqual(['daily', 'daily', 'daily'])
+    expect(emptySchedulerData()).toMatchObject({
+      backToBackPolicy: 'avoid',
+      weekStartsOn: 1,
+      positions: [],
+    })
   })
 })

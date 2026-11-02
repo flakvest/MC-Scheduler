@@ -12,6 +12,8 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   version: 2,
   regionName: '',
   setupComplete: true,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
   operators: [],
   positions: defaultPositions,
   vacations: {},

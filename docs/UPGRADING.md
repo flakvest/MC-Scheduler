@@ -53,6 +53,12 @@ After that update:
 - EXD, DW, DR, and every saved assignment stay as they are.
 - EXD remains an ALE duty seat. DW and DR remain fixed-frequency / net seats.
 - Channel names start blank. You can add a four-character channel later if you want one.
+- Scheduling stays as it is today until you change it: every seat is daily, back-to-back is Avoid, and the week starts on Monday. That is true even if the old No back-to-back checkbox was unchecked.
 - The first time the new version saves, it keeps a copy of the older data file in the backups folder (or in browser storage under the pre-migration key).
 
-Details for setting up a region are in [Region setup](REGION-SETUP.md).
+Two new choices are stored with the schedule, in Global Settings and in first-run setup:
+
+- **Back-to-back.** Avoid back-to-back is the default. Smart Assign and Check Issues then keep an operator off the previous calendar day and the next calendar day. Allow back-to-back turns that rule off. One person still holds only one seat on a day. The old No back-to-back checkbox is not used anymore.
+- **Daily or weekly, per position.** Daily is the default. Weekly gives one operator that seat for every coverage day in the week. The week starts on Monday unless you pick another day. A holiday or a day marked off stays empty. For a weekly seat, back-to-back means the previous or next week.
+
+The Region 4 example seats stay daily. Details for setting up a region are in [Region setup](REGION-SETUP.md).

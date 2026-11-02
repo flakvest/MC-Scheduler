@@ -12,7 +12,7 @@ export type EditPositionOptions = {
 
 export type EditPositionInput = {
   positionCode: PositionCode
-  updates: Partial<Pick<Position, 'name' | 'displayName' | 'type' | 'channel' | 'sortOrder'>>
+  updates: Partial<Pick<Position, 'name' | 'displayName' | 'type' | 'assignmentPeriod' | 'channel' | 'sortOrder'>>
   options?: EditPositionOptions
 }
 
@@ -61,6 +61,7 @@ export function editPosition(data: SchedulerData, input: EditPositionInput): Pos
     shortName: nextName,
     displayName: nextDisplayName,
     type: nextType,
+    assignmentPeriod: updates.assignmentPeriod ?? currentPosition.assignmentPeriod,
     channel: channelResult.channel,
     sortOrder: nextSortOrder,
   }

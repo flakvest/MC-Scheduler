@@ -28,6 +28,15 @@ const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Fri', value: 5 },
   { label: 'Sat', value: 6 },
 ]
+const weekStartDays: { label: string, value: Weekday }[] = [
+  { label: 'Sunday', value: 0 },
+  { label: 'Monday', value: 1 },
+  { label: 'Tuesday', value: 2 },
+  { label: 'Wednesday', value: 3 },
+  { label: 'Thursday', value: 4 },
+  { label: 'Friday', value: 5 },
+  { label: 'Saturday', value: 6 },
+]
 const today = new Date()
 const monthOptions = Array.from({ length: 12 }, (_, index) => ({
   label: new Date(2000, index, 1).toLocaleString('default', { month: 'long' }),
@@ -82,6 +91,7 @@ function App() {
   const [newPositionCode, setNewPositionCode] = useState('')
   const [newPositionDisplayName, setNewPositionDisplayName] = useState('')
   const [newPositionType, setNewPositionType] = useState<PositionType>('fixed')
+  const [newPositionPeriod, setNewPositionPeriod] = useState<'daily' | 'weekly'>('daily')
   const [newPositionChannel, setNewPositionChannel] = useState('')
   const [newPositionSort, setNewPositionSort] = useState('')
   const [editingPositionCode, setEditingPositionCode] = useState<string | null>(null)
@@ -213,7 +223,7 @@ function App() {
       year,
       month,
       maxShifts: smartAssignSettings.maxShiftsPerMonth,
-      preventBackToBack: smartAssignSettings.noBackToBack,
+      preventBackToBack: data.backToBackPolicy !== 'allow',
       maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
     }
     const result = smartAssign(scheduleData, {
@@ -230,7 +240,7 @@ function App() {
       year,
       month,
       maxShifts: smartAssignSettings.maxShiftsPerMonth,
-      preventBackToBack: smartAssignSettings.noBackToBack,
+      preventBackToBack: data.backToBackPolicy !== 'allow',
       maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
     })
 
@@ -439,6 +449,7 @@ function App() {
           shortName: positionCode,
           displayName,
           type: newPositionType,
+          assignmentPeriod: newPositionPeriod,
           channel: channelResult.channel,
           sortOrder,
         },
@@ -487,6 +498,7 @@ function App() {
     setNewPositionCode('')
     setNewPositionDisplayName('')
     setNewPositionType('fixed')
+    setNewPositionPeriod('daily')
     setNewPositionChannel('')
     setNewPositionSort('')
     setEditingPositionCode(null)
@@ -500,6 +512,7 @@ function App() {
     setNewPositionCode(position.name)
     setNewPositionDisplayName(position.displayName)
     setNewPositionType(position.type)
+    setNewPositionPeriod(position.assignmentPeriod)
     setNewPositionChannel(position.channel)
     setNewPositionSort(String(position.sortOrder))
   }
@@ -555,6 +568,7 @@ function App() {
         name: positionCode,
         displayName: newPositionDisplayName.trim() || positionCode,
         type: newPositionType,
+        assignmentPeriod: newPositionPeriod,
         channel: channelResult.channel,
         sortOrder,
       },
@@ -601,7 +615,14 @@ function App() {
     }
 
     setData(result.data)
-    setStatusMessage(callsign ? `${callsign} assigned to ${positionCode} on ${dateStr}.` : `${positionCode} cleared on ${dateStr}.`)
+    const weekly = scheduleData.positions.find((position) => position.name === positionCode)?.assignmentPeriod === 'weekly'
+    setStatusMessage(callsign
+      ? weekly
+        ? `${callsign} assigned to ${positionCode} for every coverage day that week.`
+        : `${callsign} assigned to ${positionCode} on ${dateStr}.`
+      : weekly
+        ? `${positionCode} cleared for every coverage day that week.`
+        : `${positionCode} cleared on ${dateStr}.`)
   }
 
   const changeCoverage = (dateStr: string, coverage: boolean) => {
@@ -1117,6 +1138,33 @@ function App() {
                 placeholder="Army MARS Region 4"
               />
             </label>
+            <label>
+              Back-to-back
+              <select
+                value={data.backToBackPolicy}
+                onChange={(event) => setData((current) => ({
+                  ...current,
+                  backToBackPolicy: event.target.value === 'allow' ? 'allow' : 'avoid',
+                }))}
+              >
+                <option value="avoid">Avoid back-to-back</option>
+                <option value="allow">Allow back-to-back</option>
+              </select>
+            </label>
+            <label>
+              Week starts on
+              <select
+                value={data.weekStartsOn}
+                onChange={(event) => setData((current) => ({
+                  ...current,
+                  weekStartsOn: Number(event.target.value) as Weekday,
+                }))}
+              >
+                {weekStartDays.map((day) => (
+                  <option value={day.value} key={day.value}>{day.label}</option>
+                ))}
+              </select>
+            </label>
             <div className="form-actions">
               <button type="button" onClick={loadRegion4Example}>Load Region 4 example</button>
               <button type="button" className="primary" onClick={finishRegionSetup}>Finish setup</button>
@@ -1125,12 +1173,12 @@ function App() {
               <ul>
                 {sortedPositions(data.positions).map((position) => (
                   <li key={position.name}>
-                    {position.name}: {position.displayName} ({position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}{position.channel ? `, channel ${position.channel}` : ''})
+                    {position.name}: {position.displayName} ({position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}, {position.assignmentPeriod === 'weekly' ? 'weekly' : 'daily'}{position.channel ? `, channel ${position.channel}` : ''})
                   </li>
                 ))}
               </ul>
             )}
-            <p>Use Positions in the admin menu to add a seat with a code, name, type, optional channel, and sort order.</p>
+            <p>Use Positions in the admin menu to add a seat with a code, name, type, daily or weekly assignment, optional channel, and sort order. Avoid back-to-back is the default. Weekly seats cover every coverage day in the week.</p>
           </section>
         )}
 
@@ -1169,16 +1217,32 @@ function App() {
               ))}
             </select>
           </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={smartAssignSettings.noBackToBack}
-              onChange={(event) => setSmartAssignSettings((current) => ({
+          <label>
+            Back-to-back
+            <select
+              value={data.backToBackPolicy}
+              onChange={(event) => setData((current) => ({
                 ...current,
-                noBackToBack: event.target.checked,
+                backToBackPolicy: event.target.value === 'allow' ? 'allow' : 'avoid',
               }))}
-            />
-            No back-to-back
+            >
+              <option value="avoid">Avoid back-to-back</option>
+              <option value="allow">Allow back-to-back</option>
+            </select>
+          </label>
+          <label>
+            Week starts on
+            <select
+              value={data.weekStartsOn}
+              onChange={(event) => setData((current) => ({
+                ...current,
+                weekStartsOn: Number(event.target.value) as Weekday,
+              }))}
+            >
+              {weekStartDays.map((day) => (
+                <option value={day.value} key={day.value}>{day.label}</option>
+              ))}
+            </select>
           </label>
           <label>
             Max shifts/week
@@ -1194,6 +1258,7 @@ function App() {
               ))}
             </select>
           </label>
+          <p className="settings-note">Avoid back-to-back is the default. Smart Assign and Check Issues use it. One person still holds only one seat per day. Set each position to Daily or Weekly under Positions.</p>
         </section>
 
         {assignmentIssues.length > 0 ? (
@@ -1258,13 +1323,16 @@ function App() {
                         <select
                           className="screen-only"
                           value={scheduleDay.assignments[position.name] || ''}
+                          title={position.assignmentPeriod === 'weekly' ? 'Weekly seat: this choice fills every coverage day in the week.' : undefined}
                           onChange={(event) => changeAssignment(dateStr, position.name, event.target.value)}
                         >
                           <option value="">Open</option>
                           {scheduleData.operators
                             .filter((operator) =>
                               operator.callsign === scheduleDay.assignments[position.name] ||
-                              canAssignOperator(scheduleData, dateStr, position, operator.callsign).allowed,
+                              (position.assignmentPeriod === 'weekly'
+                                ? assignOperator(scheduleData, dateStr, position.name, operator.callsign).check.allowed
+                                : canAssignOperator(scheduleData, dateStr, position, operator.callsign).allowed),
                             )
                             .map((operator) => (
                               <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
@@ -1514,6 +1582,16 @@ function App() {
                   </select>
                 </label>
                 <label>
+                  Assignment
+                  <select
+                    value={newPositionPeriod}
+                    onChange={(event) => setNewPositionPeriod(event.target.value === 'weekly' ? 'weekly' : 'daily')}
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </label>
+                <label>
                   Channel name (optional)
                   <input
                     type="text"
@@ -1543,6 +1621,7 @@ function App() {
                     <strong>{position.name}</strong>
                     <span>{position.displayName}{position.channel ? ` · ${position.channel}` : ''}</span>
                     <span>{position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}</span>
+                    <span>{position.assignmentPeriod === 'weekly' ? 'Weekly' : 'Daily'}</span>
                     <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
                     <button type="button" className="danger" onClick={() => confirmRemovePosition(position.name)}>Delete</button>
                   </div>

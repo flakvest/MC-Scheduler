@@ -7,6 +7,7 @@ import {
   type Schedule,
   type SchedulerData,
   type Holiday,
+  type Weekday,
 } from './schedulerTypes'
 import { holidayForDate } from './holidayRules'
 
@@ -52,6 +53,55 @@ const addDays = (dateStr: IsoDate, days: number): IsoDate => {
   return `${date.getUTCFullYear()}-${monthNumber}-${dayNumber}`
 }
 
+const weekdayOf = (dateStr: IsoDate): Weekday => {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() as Weekday
+}
+
+const startOfWeek = (dateStr: IsoDate, weekStartsOn: Weekday): IsoDate => {
+  const delta = (weekdayOf(dateStr) - weekStartsOn + 7) % 7
+  return addDays(dateStr, -delta)
+}
+
+const weekDates = (dateStr: IsoDate, weekStartsOn: Weekday): IsoDate[] => {
+  const start = startOfWeek(dateStr, weekStartsOn)
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index))
+}
+
+const dateHasCoverage = (data: SchedulerData, dateStr: IsoDate) => {
+  if (holidayForDate(data.holidays, dateStr)) return false
+  const existing = data.schedule[dateStr]
+  if (existing) return existing.coverage
+  return weekdayOf(dateStr) % 6 !== 0
+}
+
+const ensureScheduleDate = (data: SchedulerData, dateStr: IsoDate) => {
+  if (!data.schedule[dateStr]) {
+    data.schedule[dateStr] = {
+      coverage: dateHasCoverage(data, dateStr),
+      assignments: {},
+    }
+  }
+  if (holidayForDate(data.holidays, dateStr)) {
+    data.schedule[dateStr] = { coverage: false, assignments: {} }
+  }
+}
+
+const coverageDatesInWeek = (data: SchedulerData, dateStr: IsoDate, createMissing: boolean) => {
+  const dates = weekDates(dateStr, data.weekStartsOn)
+  if (createMissing) dates.forEach((date) => ensureScheduleDate(data, date))
+  return dates.filter((date) => dateHasCoverage(data, date))
+}
+
+const workedInWeekStarting = (data: SchedulerData, callsign: Callsign, weekStart: IsoDate) =>
+  weekDates(weekStart, data.weekStartsOn).some((date) => workedOnDate(data.schedule, data.positions, callsign, date))
+
+const worksAdjacentWeek = (data: SchedulerData, callsign: Callsign, dateStr: IsoDate) => {
+  const start = startOfWeek(dateStr, data.weekStartsOn)
+  return workedInWeekStarting(data, callsign, addDays(start, -7))
+    || workedInWeekStarting(data, callsign, addDays(start, 7))
+}
+
 const getOperator = (operators: Operator[], callsign: Callsign) =>
   operators.find((operator) => operator.callsign === callsign)
 
@@ -59,9 +109,6 @@ const getPositionPermission = (operator: Operator, position: Position) => {
   if (position.type === 'ale') return operator.ale
   return operator.positionPermissions[position.name] !== false
 }
-
-const getAssignmentsForDay = (schedule: Schedule, dateStr: IsoDate) =>
-  Object.values(schedule[dateStr]?.assignments ?? {})
 
 const summarizeBlockedReasons = (
   data: SchedulerData,
@@ -153,6 +200,42 @@ export function isOperatorAvailable(data: SchedulerData, callsign: Callsign, dat
   return !data.vacations[callsign]?.some((vacation) => dateStr >= vacation.start && dateStr <= vacation.end)
 }
 
+function canHoldWeeklyPosition(
+  data: SchedulerData,
+  dateStr: IsoDate,
+  position: Position,
+  callsign: Callsign,
+  options: Pick<SmartAssignOptions, 'maxShifts' | 'preventBackToBack' | 'limitWeekly' | 'maxShiftsPerWeek'>,
+): AssignmentCheck {
+  const dates = coverageDatesInWeek(data, dateStr, false)
+
+  for (const date of dates) {
+    const existing = data.schedule[date]?.assignments[position.name]
+    if (existing === callsign) continue
+    if (existing) return { allowed: false, reason: 'This week is already assigned to someone else.' }
+    if (date === dateStr) continue
+
+    const check = canAssignOperator(data, date, position, callsign)
+    if (!check.allowed) return check
+  }
+
+  if (options.preventBackToBack && worksAdjacentWeek(data, callsign, dateStr)) {
+    return { allowed: false, reason: `${callsign} already works an adjacent week.` }
+  }
+
+  const prefixes = new Set(dates.map((date) => date.slice(0, 7)))
+  for (const prefix of prefixes) {
+    const extra = dates.filter((date) =>
+      date.startsWith(prefix) && data.schedule[date]?.assignments[position.name] !== callsign,
+    ).length
+    if (getShiftCount(data.schedule, data.positions, callsign, prefix) + extra > options.maxShifts) {
+      return { allowed: false, reason: 'Operator reached the monthly shift limit.' }
+    }
+  }
+
+  return { allowed: true }
+}
+
 export function canAssignOperator(
   data: SchedulerData,
   dateStr: IsoDate,
@@ -163,8 +246,7 @@ export function canAssignOperator(
   const operator = getOperator(data.operators, callsign)
   if (!operator) return { allowed: false, reason: 'Operator does not exist.' }
 
-  const scheduleDay = data.schedule[dateStr]
-  if (!scheduleDay?.coverage) return { allowed: false, reason: 'Date does not have coverage.' }
+  if (!dateHasCoverage(data, dateStr)) return { allowed: false, reason: 'Date does not have coverage.' }
 
   if (!isOperatorAvailable(data, callsign, dateStr)) {
     return { allowed: false, reason: 'Operator is unavailable.' }
@@ -178,11 +260,17 @@ export function canAssignOperator(
     return { allowed: false, reason: 'Operator is not allowed for this position.' }
   }
 
-  if (getAssignmentsForDay(data.schedule, dateStr).includes(callsign)) {
+  const assignedToAnotherSeat = Object.entries(data.schedule[dateStr]?.assignments ?? {})
+    .some(([code, assigned]) => assigned === callsign && code !== position.name)
+  if (assignedToAnotherSeat) {
     return { allowed: false, reason: 'Operator is already assigned that day.' }
   }
 
   if (!options) return { allowed: true }
+
+  if (position.assignmentPeriod === 'weekly') {
+    return canHoldWeeklyPosition(data, dateStr, position, callsign, options)
+  }
 
   const prefix = dateStr.slice(0, 7)
 
@@ -219,6 +307,7 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
   let assignedCount = 0
   let blockedCount = 0
   const issues: AssignmentIssue[] = []
+  const handledWeeks = new Set<string>()
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dateStr = isoDateForMonthDay(options.year, options.month, day)
@@ -227,6 +316,54 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
     if (!scheduleDay?.coverage) continue
 
     rankedPositions.forEach((position) => {
+      if (position.assignmentPeriod === 'weekly') {
+        const weekStart = startOfWeek(dateStr, nextData.weekStartsOn)
+        const token = `${position.name}|${weekStart}`
+        if (handledWeeks.has(token)) return
+        handledWeeks.add(token)
+
+        const dates = coverageDatesInWeek(nextData, dateStr, true)
+        const openDates = dates.filter((date) => !nextData.schedule[date]?.assignments[position.name])
+        if (openDates.length === 0) return
+
+        const holders = [...new Set(dates.map((date) => nextData.schedule[date]?.assignments[position.name]).filter(Boolean))]
+        if (holders.length > 1) {
+          blockedCount += 1
+          issues.push({
+            date: dateStr,
+            position: position.shortName,
+            reason: 'This week is split between more than one operator.',
+          })
+          return
+        }
+
+        const candidates = (holders.length === 1
+          ? nextData.operators.filter((operator) => operator.callsign === holders[0])
+          : nextData.operators
+        )
+          .filter((operator) => canAssignOperator(nextData, dateStr, position, operator.callsign, options).allowed)
+          .sort((left, right) =>
+            getShiftCount(nextData.schedule, nextData.positions, left.callsign, prefix) -
+            getShiftCount(nextData.schedule, nextData.positions, right.callsign, prefix),
+          )
+
+        if (candidates.length === 0) {
+          blockedCount += 1
+          issues.push({
+            date: dateStr,
+            position: position.shortName,
+            reason: summarizeBlockedReasons(nextData, dateStr, position, options),
+          })
+          return
+        }
+
+        openDates.forEach((date) => {
+          nextData.schedule[date].assignments[position.name] = candidates[0].callsign
+          assignedCount += 1
+        })
+        return
+      }
+
       if (scheduleDay.assignments[position.name]) return
 
       const candidates = nextData.operators
@@ -263,7 +400,9 @@ export function findOpenAssignmentIssues(data: SchedulerData, options: SmartAssi
   const schedule = ensureMonthSchedule(data.schedule, options.year, options.month, data.holidays)
   const nextData = { ...data, schedule }
   const daysInMonth = new Date(options.year, options.month, 0).getDate()
+  const monthKey = monthPrefix(options.year, options.month)
   const issues: AssignmentIssue[] = []
+  const seenWeeks = new Set<string>()
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dateStr = isoDateForMonthDay(options.year, options.month, day)
@@ -272,6 +411,34 @@ export function findOpenAssignmentIssues(data: SchedulerData, options: SmartAssi
     if (!scheduleDay?.coverage) continue
 
     nextData.positions.forEach((position) => {
+      if (position.assignmentPeriod === 'weekly') {
+        const token = `${position.name}|${startOfWeek(dateStr, nextData.weekStartsOn)}`
+        if (seenWeeks.has(token)) return
+        seenWeeks.add(token)
+
+        const dates = coverageDatesInWeek(nextData, dateStr, false)
+        const holders = [...new Set(dates.map((date) => nextData.schedule[date]?.assignments[position.name]).filter(Boolean))]
+        if (holders.length > 1) {
+          issues.push({
+            date: dateStr,
+            position: position.shortName,
+            reason: 'This week is split between more than one operator.',
+          })
+          return
+        }
+
+        dates
+          .filter((date) => date.startsWith(monthKey) && !nextData.schedule[date]?.assignments[position.name])
+          .forEach((date) => {
+            issues.push({
+              date,
+              position: position.shortName,
+              reason: summarizeBlockedReasons(nextData, date, position, options),
+            })
+          })
+        return
+      }
+
       if (scheduleDay.assignments[position.name]) return
 
       issues.push({
@@ -288,6 +455,30 @@ export function findOpenAssignmentIssues(data: SchedulerData, options: SmartAssi
 export function assignOperator(data: SchedulerData, dateStr: IsoDate, positionCode: PositionCode, callsign: Callsign) {
   const position = data.positions.find((item) => item.name === positionCode)
   if (!position) return { data, check: { allowed: false, reason: 'Position does not exist.' } }
+
+  if (position.assignmentPeriod === 'weekly') {
+    const dates = coverageDatesInWeek(data, dateStr, false)
+    if (!callsign) {
+      const nextData = structuredClone(data)
+      dates.forEach((date) => {
+        if (nextData.schedule[date]?.assignments) delete nextData.schedule[date].assignments[positionCode]
+      })
+      return { data: nextData, check: { allowed: true } }
+    }
+
+    for (const date of dates) {
+      if (data.schedule[date]?.assignments[positionCode] === callsign) continue
+      const check = canAssignOperator(data, date, position, callsign)
+      if (!check.allowed) return { data, check }
+    }
+
+    const nextData = structuredClone(data)
+    dates.forEach((date) => {
+      ensureScheduleDate(nextData, date)
+      if (nextData.schedule[date].coverage) nextData.schedule[date].assignments[positionCode] = callsign
+    })
+    return { data: nextData, check: { allowed: true } }
+  }
 
   if (!callsign) {
     const nextData = structuredClone(data)

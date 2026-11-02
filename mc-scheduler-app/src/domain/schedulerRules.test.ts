@@ -1,5 +1,11 @@
+/// <reference types="node" />
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { defaultPositions, type Operator, type SchedulerData } from './schedulerTypes'
+import { defaultPositions, type Operator, type Schedule, type SchedulerData } from './schedulerTypes'
 import {
   assignOperator,
   canAssignOperator,
@@ -223,3 +229,345 @@ describe('scheduler rules', () => {
     expect(result.schedule['2026-04-01'].assignments).toEqual({})
   })
 })
+
+const backToBackOptions = {
+  maxShifts: 10,
+  preventBackToBack: true,
+  maxShiftsPerWeek: 10,
+}
+
+const coveredMonth = (year: number, month: number, coverage = false): Schedule => {
+  const days = new Date(year, month, 0).getDate()
+  const prefix = `${year}-${String(month).padStart(2, '0')}`
+  const schedule: Schedule = {}
+
+  for (let day = 1; day <= days; day += 1) {
+    schedule[`${prefix}-${String(day).padStart(2, '0')}`] = { coverage, assignments: {} }
+  }
+
+  return schedule
+}
+
+const namesOnDate = (data: SchedulerData, date: string) =>
+  data.positions
+    .map((position) => data.schedule[date]?.assignments[position.name])
+    .filter((callsign): callsign is string => Boolean(callsign))
+
+describe('no back-to-back looks at both neighboring days', () => {
+  it('blocks the day before and the day after an existing shift', () => {
+    const data = schedulerData({
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: {} },
+        '2026-04-02': { coverage: true, assignments: { DW: 'ALPHA' } },
+        '2026-04-03': { coverage: true, assignments: {} },
+      },
+    })
+
+    expect(canAssignOperator(data, '2026-04-01', dwPosition, 'ALPHA', backToBackOptions)).toEqual({
+      allowed: false,
+      reason: 'ALPHA already works the next day.',
+    })
+    expect(canAssignOperator(data, '2026-04-03', dwPosition, 'ALPHA', backToBackOptions)).toEqual({
+      allowed: false,
+      reason: 'Operator worked the previous day.',
+    })
+    expect(canAssignOperator(data, '2026-04-01', dwPosition, 'ALPHA').allowed).toBe(true)
+
+    const manual = assignOperator(data, '2026-04-01', 'DW', 'ALPHA')
+    expect(manual.check.allowed).toBe(true)
+    expect(manual.data.schedule['2026-04-01'].assignments.DW).toBe('ALPHA')
+  })
+
+  it('leaves the only eligible seat open when that operator works the next day', () => {
+    const data = schedulerData({
+      operators: [operator('ALPHA', true), operator('BRAVO'), operator('CHARLIE')],
+      schedule: {
+        ...coveredMonth(2026, 4),
+        '2026-04-01': { coverage: true, assignments: {} },
+        '2026-04-02': { coverage: true, assignments: { EXD: 'ALPHA' } },
+      },
+    })
+
+    const result = smartAssign(data, { year: 2026, month: 4, ...backToBackOptions })
+
+    expect(result.data.schedule['2026-04-01'].assignments.EXD).toBeUndefined()
+    expect(result.data.schedule['2026-04-02'].assignments.EXD).toBe('ALPHA')
+    expect(namesOnDate(result.data, '2026-04-01')).not.toContain('ALPHA')
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      date: '2026-04-01',
+      position: 'EXD',
+      reason: expect.stringContaining('ALPHA already works the next day.'),
+    }))
+  })
+
+  it('does not give the last seat of a full day to the operator already working tomorrow', () => {
+    const data = schedulerData({
+      operators: [operator('ALPHA', true), operator('BRAVO', true), operator('CHARLIE', true)],
+      schedule: {
+        ...coveredMonth(2026, 4),
+        '2026-04-01': { coverage: true, assignments: {} },
+        '2026-04-02': { coverage: true, assignments: { EXD: 'ALPHA' } },
+      },
+    })
+
+    const result = smartAssign(data, { year: 2026, month: 4, ...backToBackOptions })
+    const aprilFirst = result.data.schedule['2026-04-01'].assignments
+
+    expect(namesOnDate(result.data, '2026-04-01')).not.toContain('ALPHA')
+    expect(aprilFirst.EXD).toBe('BRAVO')
+    expect(aprilFirst.DW).toBe('CHARLIE')
+    expect(aprilFirst.DR).toBeUndefined()
+    expect(result.data.schedule['2026-04-02'].assignments.EXD).toBe('ALPHA')
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      date: '2026-04-01',
+      position: 'DR',
+      reason: expect.stringContaining('ALPHA already works the next day.'),
+    }))
+  })
+
+  it('does not schedule an operator on the day they return, directly before an existing shift', () => {
+    const data = schedulerData({
+      operators: [operator('ALPHA', true), operator('BRAVO', true), operator('CHARLIE', true)],
+      vacations: { ALPHA: [{ start: '2026-04-01', end: '2026-04-13' }] },
+      schedule: {
+        '2026-04-14': { coverage: true, assignments: {} },
+        '2026-04-15': { coverage: true, assignments: { DW: 'ALPHA' } },
+      },
+    })
+
+    const result = smartAssign(data, {
+      year: 2026,
+      month: 4,
+      maxShifts: 10,
+      preventBackToBack: true,
+      maxShiftsPerWeek: 2,
+    })
+
+    expect(result.data.schedule['2026-04-15'].assignments.DW).toBe('ALPHA')
+    expect(namesOnDate(result.data, '2026-04-14')).not.toContain('ALPHA')
+    expect(canAssignOperator(data, '2026-04-14', exdPosition, 'ALPHA', {
+      maxShifts: 10,
+      preventBackToBack: true,
+      maxShiftsPerWeek: 2,
+    }).reason).toBe('ALPHA already works the next day.')
+  })
+
+  it('still refuses the neighboring day after an unavailable day is cleared and Smart Assign runs again', () => {
+    const wednesday = new Date('2026-04-01T00:00:00').getDay() as Operator['unavailable'][number]
+    const data = schedulerData({
+      operators: [
+        { ...operator('ALPHA', true), unavailable: [wednesday] },
+        operator('BRAVO', true),
+        operator('CHARLIE', true),
+      ],
+      schedule: {
+        ...coveredMonth(2026, 4),
+        '2026-04-01': { coverage: true, assignments: {} },
+        '2026-04-02': { coverage: true, assignments: { EXD: 'ALPHA' } },
+      },
+    })
+
+    const first = smartAssign(data, { year: 2026, month: 4, ...backToBackOptions })
+    expect(namesOnDate(first.data, '2026-04-01')).not.toContain('ALPHA')
+
+    const availableAgain = {
+      ...first.data,
+      operators: first.data.operators.map((person) => (
+        person.callsign === 'ALPHA' ? { ...person, unavailable: [] } : person
+      )),
+    }
+    const second = smartAssign(availableAgain, { year: 2026, month: 4, ...backToBackOptions })
+
+    expect(second.data.schedule['2026-04-02'].assignments.EXD).toBe('ALPHA')
+    expect(namesOnDate(second.data, '2026-04-01')).not.toContain('ALPHA')
+    expect(second.issues).toContainEqual(expect.objectContaining({
+      date: '2026-04-01',
+      reason: expect.stringContaining('ALPHA already works the next day.'),
+    }))
+  })
+
+  it('keeps the month boundary clear when the later month was built first', () => {
+    const operators = [operator('ALPHA', true), operator('BRAVO'), operator('CHARLIE')]
+    const limits = { maxShifts: 23, preventBackToBack: true, maxShiftsPerWeek: 10 }
+    const september = smartAssign(schedulerData({ operators, schedule: {} }), {
+      year: 2026,
+      month: 9,
+      ...limits,
+    })
+    const august = smartAssign(september.data, {
+      year: 2026,
+      month: 8,
+      ...limits,
+    })
+
+    expect(august.data.schedule['2026-09-01'].assignments.EXD).toBe('ALPHA')
+    expect(august.data.schedule['2026-08-31'].assignments.EXD).toBeUndefined()
+    expect(namesOnDate(august.data, '2026-08-31')).not.toContain('ALPHA')
+    expect(august.issues).toContainEqual(expect.objectContaining({
+      date: '2026-08-31',
+      position: 'EXD',
+      reason: expect.stringContaining('ALPHA already works the next day.'),
+    }))
+  })
+
+  it('uses the same neighboring dates in US time zones and in time zones ahead of UTC', () => {
+    const appRoot = fileURLToPath(new URL('../..', import.meta.url))
+    const tempDir = mkdtempSync(join(tmpdir(), 'mc-scheduler-tz-'))
+    const probePath = join(tempDir, 'probe.ts')
+    const registerPath = join(tempDir, 'register.mjs')
+
+    writeFileSync(join(tempDir, 'hooks.mjs'), timezoneResolveHook)
+    writeFileSync(registerPath, "import { register } from 'node:module'\nregister('./hooks.mjs', import.meta.url)\n")
+    writeFileSync(probePath, timezoneProbeSource.replaceAll('APP_ROOT', appRoot.replaceAll('\\', '/')))
+
+    const zones = [
+      'America/New_York',
+      'America/Chicago',
+      'America/Los_Angeles',
+      'Europe/London',
+      'Europe/Berlin',
+      'Pacific/Auckland',
+    ]
+
+    try {
+      for (const zone of zones) {
+        const result = spawnSync(process.execPath, ['--experimental-strip-types', '--import', registerPath, probePath], {
+          env: { ...process.env, TZ: zone },
+          encoding: 'utf8',
+        })
+
+        expect(result.status, `${zone}\n${result.stdout}\n${result.stderr}`).toBe(0)
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})
+
+const timezoneResolveHook = `
+export async function resolve(specifier, context, nextResolve) {
+  if (specifier.startsWith('./') || specifier.startsWith('../')) {
+    for (const suffix of ['.ts', '.tsx', '.js', '.mjs']) {
+      try {
+        return await nextResolve(specifier + suffix, context)
+      } catch {
+        // Try the next suffix.
+      }
+    }
+  }
+
+  return nextResolve(specifier, context)
+}
+`
+
+const timezoneProbeSource = `
+import { canAssignOperator, getWeeklyShiftCount, smartAssign } from 'APP_ROOT/src/domain/schedulerRules.ts'
+import { defaultPositions } from 'APP_ROOT/src/domain/schedulerTypes.ts'
+
+const dw = defaultPositions[1]
+const limits = { maxShifts: 10, preventBackToBack: true, maxShiftsPerWeek: 10 }
+const failures = []
+
+const person = (callsign, ale = true) => ({
+  callsign,
+  ale,
+  unavailable: [],
+  positionPermissions: { EXD: ale, DW: true, DR: true },
+})
+
+const make = (operators, schedule) => ({
+  version: 1,
+  operators,
+  positions: defaultPositions,
+  vacations: {},
+  holidays: [],
+  schedule,
+})
+
+const check = (label, actual, expected) => {
+  if (actual !== expected) {
+    failures.push(label + ': expected ' + JSON.stringify(expected) + ' but got ' + JSON.stringify(actual))
+  }
+}
+
+const assignable = (workedDate, targetDate) => {
+  const data = make([person('ALPHA'), person('BRAVO')], {
+    [workedDate]: { coverage: true, assignments: { DW: 'ALPHA' } },
+    [targetDate]: { coverage: true, assignments: {} },
+  })
+  return canAssignOperator(data, targetDate, dw, 'ALPHA', limits).allowed
+}
+
+const expectBlocked = (worked, target) => check(worked + ' blocks ' + target, assignable(worked, target), false)
+const expectAllowed = (worked, target) => check(worked + ' allows ' + target, assignable(worked, target), true)
+
+expectBlocked('2026-04-01', '2026-04-02')
+expectAllowed('2026-04-01', '2026-04-03')
+expectBlocked('2026-04-01', '2026-03-31')
+expectAllowed('2026-04-01', '2026-03-30')
+expectBlocked('2026-03-31', '2026-04-01')
+expectAllowed('2026-03-31', '2026-04-02')
+expectBlocked('2026-05-01', '2026-04-30')
+expectAllowed('2026-05-01', '2026-04-29')
+expectBlocked('2026-03-09', '2026-03-08')
+expectBlocked('2026-03-09', '2026-03-10')
+expectAllowed('2026-03-09', '2026-03-07')
+expectAllowed('2026-03-09', '2026-03-11')
+expectBlocked('2026-03-30', '2026-03-29')
+expectBlocked('2026-03-30', '2026-03-31')
+expectAllowed('2026-03-30', '2026-03-28')
+expectAllowed('2026-03-30', '2026-04-01')
+expectBlocked('2026-01-15', '2026-01-14')
+expectBlocked('2026-01-15', '2026-01-16')
+expectAllowed('2026-01-15', '2026-01-13')
+expectAllowed('2026-01-15', '2026-01-17')
+expectBlocked('2026-11-02', '2026-11-01')
+expectBlocked('2026-11-02', '2026-11-03')
+expectAllowed('2026-11-02', '2026-10-31')
+expectAllowed('2026-11-02', '2026-11-04')
+
+const weeklyData = make([person('ALPHA')], {
+  '2026-04-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+  '2026-04-03': { coverage: true, assignments: { DR: 'ALPHA' } },
+})
+check(
+  'weekly window',
+  getWeeklyShiftCount(weeklyData.schedule, weeklyData.positions, 'ALPHA', '2026-04-02'),
+  2,
+)
+check(
+  'weekly window sees the next month',
+  getWeeklyShiftCount(make([person('ALPHA')], {
+    '2026-05-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+  }).schedule, defaultPositions, 'ALPHA', '2026-04-30'),
+  1,
+)
+
+const crew = ['ALPHA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT'].map((callsign) => person(callsign))
+const filled = smartAssign(make(crew, {}), {
+  year: 2026,
+  month: 4,
+  maxShifts: 10,
+  preventBackToBack: true,
+  maxShiftsPerWeek: 2,
+})
+const shiftDate = (dateStr, days) => {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
+}
+const pairs = []
+for (const date of Object.keys(filled.data.schedule)) {
+  const previous = shiftDate(date, -1)
+  for (const operator of crew) {
+    const onDate = (day) => defaultPositions.some((position) => filled.data.schedule[day]?.assignments[position.name] === operator.callsign)
+    if (onDate(date) && onDate(previous)) pairs.push(operator.callsign + ' ' + previous + ' ' + date)
+  }
+}
+check('clean April pairs', pairs.length, 0)
+
+if (failures.length > 0) {
+  console.error(failures.join('\\n'))
+  process.exit(1)
+}
+console.log('ok')
+`

@@ -14,6 +14,8 @@ mc-scheduler-app/src-tauri/target/release/bundle/nsis/
 
 GitHub Actions workflow `.github/workflows/release-windows.yml` runs that same build on `windows-latest` and publishes the result.
 
+A separate workflow, `.github/workflows/test-build.yml`, builds the same installer and uploads it as an Actions artifact. It does not publish a release or `latest.json`, so installed copies are not offered that build.
+
 - Pushing a tag such as `v0.1.0` starts the build.
 - The workflow can also be started by hand. It asks for the release tag.
 

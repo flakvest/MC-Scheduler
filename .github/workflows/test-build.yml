@@ -1,0 +1,93 @@
+# Test installer only. This workflow does not create a release, tag, or latest.json.
+# Installed copies keep checking the published 0.1.0 manifest and are not offered this build.
+
+name: Test Windows installer
+
+on:
+  pull_request:
+  push:
+    branches:
+      - cursor/generic-regions-1f52
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    name: Build test installer
+    # A push to this branch also starts a pull_request run. Build once, from the push.
+    if: github.event_name != 'pull_request' || github.head_ref != 'cursor/generic-regions-1f52'
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mc-scheduler-app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: mc-scheduler-app/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: mc-scheduler-app
+        run: npm ci
+
+      - name: Verify updater signing secrets
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is not set on this repository."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set on this repository."
+          }
+
+      - name: Build the signed NSIS installer
+        working-directory: mc-scheduler-app
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # GitHub secret boxes often keep a trailing newline from a pasted file.
+          $env:TAURI_SIGNING_PRIVATE_KEY = $env:TAURI_SIGNING_PRIVATE_KEY.Trim()
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Trim()
+          npm run tauri -- build
+
+      - name: Record the installer version
+        id: installer
+        working-directory: mc-scheduler-app
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $setup) { throw "NSIS setup exe was not produced." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "filename=$($setup.Name)" >> $env:GITHUB_OUTPUT
+          Write-Host "Test installer version $version"
+          Write-Host "Test installer file $($setup.Name)"
+
+      - name: Upload the test installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC-Scheduler-${{ steps.installer.outputs.version }}-test-windows
+          path: mc-scheduler-app/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 30

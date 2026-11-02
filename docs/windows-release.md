@@ -40,7 +40,7 @@ The updater key is not a Windows code-signing certificate. Windows SmartScreen c
 The release workflow will stop before building unless these repository secrets exist:
 
 - `TAURI_SIGNING_PRIVATE_KEY`: the contents of the minisign private key file
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password for that key
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password for that key. A trailing newline from pasting the password file is removed before signing.
 
 Add them under the GitHub repository **Settings → Secrets and variables → Actions**. Do not commit either value. The matching public key is already in `src-tauri/tauri.conf.json`.
 

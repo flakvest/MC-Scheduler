@@ -604,8 +604,70 @@ select {
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 18px;
+}
+
+.update-dialog {
+  width: min(560px, 100%);
+}
+
+.update-notes {
+  max-height: 160px;
+  margin: 12px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid #d5dee5;
+  border-radius: 6px;
+  padding: 10px;
+  background: #f7fafb;
+  color: #243642;
+  font: inherit;
+}
+
+.update-callout {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 2px solid #225f7a;
+  border-radius: 8px;
+  padding: 12px;
+  background: #eef6f8;
+}
+
+.update-callout p,
+.update-skip p {
+  margin: 0;
+}
+
+.update-callout .primary {
+  justify-self: start;
+}
+
+.backup-saved {
+  font-weight: 700;
+}
+
+.update-skip {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid #e0b4b4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff6f6;
+}
+
+.update-error {
+  color: #9f2f2f;
+  font-weight: 700;
+}
+
+.primary:disabled,
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .print-only {
@@ -658,6 +720,8 @@ select {
   .issues-panel,
   .admin-drawer,
   .drawer-backdrop,
+  .confirm-backdrop,
+  .update-backdrop,
   .output-panel,
   .panel-heading button,
   button,

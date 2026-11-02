@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backupToJson, parseBackupJson } from './backupFiles'
+import { backupToJson, fullBackupToJson, parseBackupJson, readSmartAssignSettingsFromBackup } from './backupFiles'
 import { defaultPositions, type SchedulerData } from './schedulerTypes'
 
 const data: SchedulerData = {
@@ -64,5 +64,30 @@ describe('backup files', () => {
 
   it('rejects non-object JSON', () => {
     expect(() => parseBackupJson('[]')).toThrow('Backup file is not a JSON object.')
+  })
+
+  it('exports every month and the Smart Assign settings, and still reads older backups', () => {
+    const fullData: SchedulerData = {
+      ...data,
+      vacations: { ALPHA: [{ start: '2026-03-01', end: '2026-03-02' }] },
+      schedule: {
+        '2026-03-31': { coverage: true, assignments: { EXD: 'ALPHA' } },
+        '2027-01-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+      },
+    }
+    const settings = {
+      version: 1 as const,
+      maxShiftsPerMonth: 4,
+      noBackToBack: true,
+      maxShiftsPerWeek: 2,
+    }
+    const json = fullBackupToJson(fullData, settings)
+    const parsed = JSON.parse(json) as { smartAssignSettings: unknown, schedule: Record<string, unknown> }
+
+    expect(Object.keys(parsed.schedule)).toEqual(['2026-03-31', '2027-01-01'])
+    expect(parsed.smartAssignSettings).toEqual(settings)
+    expect(parseBackupJson(json).schedule['2027-01-01'].assignments.DW).toBe('ALPHA')
+    expect(readSmartAssignSettingsFromBackup(json)).toEqual(settings)
+    expect(readSmartAssignSettingsFromBackup(backupToJson(data))).toBeNull()
   })
 })

@@ -1,1 +1,5 @@
 tools/
+
+# Updater private keys. The public key belongs in tauri.conf.json.
+*.key
+mc-scheduler-updater.password

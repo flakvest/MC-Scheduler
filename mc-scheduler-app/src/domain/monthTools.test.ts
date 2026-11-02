@@ -4,7 +4,9 @@ import { parseBackupJson } from './backupFiles'
 import { defaultPositions, type SchedulerData } from './schedulerTypes'
 
 const baseData: SchedulerData = {
-  version: 1,
+  version: 2,
+  regionName: '',
+  setupComplete: true,
   operators: [
     {
       callsign: 'ALPHA',
@@ -67,7 +69,7 @@ describe('month tools', () => {
     const json = JSON.stringify(snapshot)
     const parsed = parseBackupJson(json)
 
-    expect(parsed.version).toBe(1)
+    expect(parsed.version).toBe(2)
     expect(parsed.schedule).toEqual({
       '2026-04-01': { coverage: true, assignments: { EXD: 'ALPHA', DW: 'ALPHA' } },
       '2026-04-15': { coverage: false, assignments: { DR: 'ALPHA' } },

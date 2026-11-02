@@ -56,7 +56,7 @@ const getOperator = (operators: Operator[], callsign: Callsign) =>
   operators.find((operator) => operator.callsign === callsign)
 
 const getPositionPermission = (operator: Operator, position: Position) => {
-  if (position.name === 'EXD') return operator.ale
+  if (position.type === 'ale') return operator.ale
   return operator.positionPermissions[position.name] !== false
 }
 
@@ -170,7 +170,7 @@ export function canAssignOperator(
     return { allowed: false, reason: 'Operator is unavailable.' }
   }
 
-  if (position.requiresALE && !operator.ale) {
+  if (position.type === 'ale' && !operator.ale) {
     return { allowed: false, reason: 'Position requires ALE.' }
   }
 
@@ -211,7 +211,9 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
   const schedule = ensureMonthSchedule(data.schedule, options.year, options.month, data.holidays)
   const nextData = structuredClone({ ...data, schedule })
   const prefix = monthPrefix(options.year, options.month)
-  const rankedPositions = [...nextData.positions].sort((a, b) => Number(b.requiresALE) - Number(a.requiresALE))
+  const rankedPositions = [...nextData.positions]
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+    .sort((left, right) => Number(right.type === 'ale') - Number(left.type === 'ale'))
   const daysInMonth = new Date(options.year, options.month, 0).getDate()
 
   let assignedCount = 0

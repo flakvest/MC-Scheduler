@@ -1,13 +1,17 @@
 export type PositionCode = string
 export type Callsign = string
 export type IsoDate = string
+export type PositionType = 'ale' | 'fixed'
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
 
 export type Position = {
   name: PositionCode
   shortName: PositionCode
-  requiresALE: boolean
+  displayName: string
+  type: PositionType
+  channel: string
+  sortOrder: number
 }
 
 export type Operator = {
@@ -40,7 +44,9 @@ export type ScheduleDay = {
 export type Schedule = Record<IsoDate, ScheduleDay>
 
 export type SchedulerData = {
-  version: 1
+  version: 2
+  regionName: string
+  setupComplete: boolean
   operators: Operator[]
   positions: Position[]
   vacations: VacationMap
@@ -65,17 +71,26 @@ export const POSITION_EXD = 'EXD'
 export const POSITION_DW = 'DW'
 export const POSITION_DR = 'DR'
 
-export const defaultPositions: Position[] = [
-  { name: POSITION_EXD, shortName: POSITION_EXD, requiresALE: true },
-  { name: POSITION_DW, shortName: POSITION_DW, requiresALE: false },
-  { name: POSITION_DR, shortName: POSITION_DR, requiresALE: false },
+export const region4ExamplePositions = (): Position[] => [
+  { name: POSITION_EXD, shortName: POSITION_EXD, displayName: 'EXD', type: 'ale', channel: '', sortOrder: 1 },
+  { name: POSITION_DW, shortName: POSITION_DW, displayName: 'DeltaWhite', type: 'fixed', channel: '', sortOrder: 2 },
+  { name: POSITION_DR, shortName: POSITION_DR, displayName: 'DeltaRed', type: 'fixed', channel: '', sortOrder: 3 },
 ]
 
+export const defaultPositions: Position[] = region4ExamplePositions()
+
 export const emptySchedulerData = (): SchedulerData => ({
-  version: 1,
+  version: 2,
+  regionName: '',
+  setupComplete: false,
   operators: [],
-  positions: defaultPositions,
+  positions: [],
   vacations: {},
   holidays: [],
   schedule: {},
 })
+
+export const isAleDuty = (position: Position) => position.type === 'ale'
+
+export const sortedPositions = (positions: Position[]) =>
+  [...positions].sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))

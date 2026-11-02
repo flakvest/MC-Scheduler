@@ -51,11 +51,7 @@ export function monthHasAssignments(data: SchedulerData, month: string): boolean
 
 export function createMonthSnapshot(data: SchedulerData, month: string): SchedulerData {
   return {
-    version: 1,
-    operators: data.operators,
-    positions: data.positions,
-    vacations: data.vacations,
-    holidays: data.holidays,
+    ...data,
     schedule: pickScheduleMonth(data.schedule, month),
   }
 }

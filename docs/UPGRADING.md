@@ -43,3 +43,16 @@ Leave **Uninstall before installing** unselected. If you do use that choice, the
 Open MC Scheduler. The **App Version** box should say **v0.1.0**. Your operators and the calendar should look the same as before. The status line should say the data was loaded from the AppData folder.
 
 From this version on, you do not need to download the next setup by hand. Use **Check for updates** at the top of the window. The app will ask you to back up the full database before it installs anything.
+
+## Later update: region positions
+
+A later update (planned as 0.2.0) lets any Army MARS region name itself and create its own positions. People already using 0.1.0 get that update from **Check for updates**. The app asks for a full backup before it installs.
+
+After that update:
+
+- EXD, DW, DR, and every saved assignment stay as they are.
+- EXD remains an ALE duty seat. DW and DR remain fixed-frequency / net seats.
+- Channel names start blank. You can add a four-character channel later if you want one.
+- The first time the new version saves, it keeps a copy of the older data file in the backups folder (or in browser storage under the pre-migration key).
+
+Details for setting up a region are in [Region setup](REGION-SETUP.md).

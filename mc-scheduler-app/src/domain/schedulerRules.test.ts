@@ -33,7 +33,9 @@ const operator = (callsign: string, ale = false): Operator => ({
 })
 
 const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData => ({
-  version: 1,
+  version: 2,
+  regionName: '',
+  setupComplete: true,
   operators: [operator('ALPHA', true), operator('BRAVO'), operator('CHARLIE', true)],
   positions: defaultPositions,
   vacations: {},

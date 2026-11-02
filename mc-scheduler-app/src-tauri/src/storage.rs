@@ -14,25 +14,11 @@ const BACKUP_DIR_NAME: &str = "backups";
 const YEARS_DIR_NAME: &str = "years";
 const BACKUP_KEEP_COUNT: usize = 5;
 const DEFAULT_SCHEDULER_JSON: &str = r#"{
-  "version": 1,
+  "version": 2,
+  "regionName": "",
+  "setupComplete": false,
   "operators": [],
-  "positions": [
-    {
-      "name": "EXD",
-      "shortName": "EXD",
-      "requiresALE": true
-    },
-    {
-      "name": "DW",
-      "shortName": "DW",
-      "requiresALE": false
-    },
-    {
-      "name": "DR",
-      "shortName": "DR",
-      "requiresALE": false
-    }
-  ],
+  "positions": [],
   "vacations": {},
   "holidays": [],
   "schedule": {}

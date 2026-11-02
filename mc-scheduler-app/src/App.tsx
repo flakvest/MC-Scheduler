@@ -15,7 +15,8 @@ import { generateScheduleText } from './domain/scheduleOutput'
 import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
 import { getAppVersion, getSchedulerStorageInfo, loadSchedulerData, openSchedulerDataFolder, saveSchedulerData, type SchedulerStorageInfo } from './domain/schedulerStorage'
 import { applyHolidaysToData, fetchFederalHolidays, generateFederalHolidays, holidayForDate, normalizeHolidayName, uniqueHolidays } from './domain/holidayRules'
-import { emptySchedulerData, type Holiday, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
+import { normalizeChannel } from './domain/schedulerMigration'
+import { emptySchedulerData, region4ExamplePositions, sortedPositions, type Holiday, type PositionType, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
 
 const weekdays: { label: string, value: Weekday }[] = [
@@ -79,7 +80,10 @@ function App() {
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
   const [editingOperatorCallsign, setEditingOperatorCallsign] = useState<string | null>(null)
   const [newPositionCode, setNewPositionCode] = useState('')
-  const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
+  const [newPositionDisplayName, setNewPositionDisplayName] = useState('')
+  const [newPositionType, setNewPositionType] = useState<PositionType>('fixed')
+  const [newPositionChannel, setNewPositionChannel] = useState('')
+  const [newPositionSort, setNewPositionSort] = useState('')
   const [editingPositionCode, setEditingPositionCode] = useState<string | null>(null)
   const [vacationCallsign, setVacationCallsign] = useState('')
   const [vacationStart, setVacationStart] = useState('')
@@ -102,7 +106,7 @@ function App() {
     let active = true
 
     const hydrateStorage = async () => {
-      const [loadedData, loadedStorageInfo, loadedAppVersion] = await Promise.all([
+      const [loaded, loadedStorageInfo, loadedAppVersion] = await Promise.all([
         loadSchedulerData(),
         getSchedulerStorageInfo(),
         getAppVersion(),
@@ -110,8 +114,8 @@ function App() {
 
       if (!active) return
 
-      skipNextSaveRef.current = true
-      setData(loadedData)
+      skipNextSaveRef.current = !loaded.migrated
+      setData(loaded.data)
       setStorageInfo(loadedStorageInfo)
       setAppVersion(loadedAppVersion)
       setStorageReady(true)
@@ -280,7 +284,7 @@ function App() {
     }
 
     const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
-      permissions[position.name] = position.name === 'EXD'
+      permissions[position.name] = position.type === 'ale'
         ? newOperatorAle
         : newOperatorPermissions[position.name] !== false
       return permissions
@@ -318,7 +322,7 @@ function App() {
     }
 
     const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
-      permissions[position.name] = position.name === 'EXD'
+      permissions[position.name] = position.type === 'ale'
         ? newOperatorAle
         : newOperatorPermissions[position.name] !== false
       return permissions
@@ -405,15 +409,26 @@ function App() {
       return
     }
 
-    if (positionCode === 'EXD') {
-      setStatusMessage('EXD already exists and stays linked to ALE.')
-      return
-    }
-
     if (data.positions.some((position) => position.name === positionCode)) {
       setStatusMessage(`${positionCode} already exists.`)
       return
     }
+
+    const channelResult = normalizeChannel(newPositionChannel)
+    if (channelResult.error) {
+      setStatusMessage(channelResult.error)
+      return
+    }
+
+    const sortOrder = newPositionSort.trim() === ''
+      ? Math.max(0, ...data.positions.map((position) => position.sortOrder)) + 1
+      : Number(newPositionSort)
+    if (!Number.isInteger(sortOrder)) {
+      setStatusMessage('Sort order must be a whole number.')
+      return
+    }
+
+    const displayName = newPositionDisplayName.trim() || positionCode
 
     setData((current) => ({
       ...current,
@@ -422,25 +437,58 @@ function App() {
         {
           name: positionCode,
           shortName: positionCode,
-          requiresALE: newPositionRequiresAle,
+          displayName,
+          type: newPositionType,
+          channel: channelResult.channel,
+          sortOrder,
         },
       ],
       operators: current.operators.map((operator) => ({
         ...operator,
         positionPermissions: {
           ...operator.positionPermissions,
-          [positionCode]: newPositionRequiresAle ? operator.ale : true,
+          [positionCode]: newPositionType === 'ale' ? operator.ale : true,
         },
       })),
     }))
-    setNewPositionCode('')
-    setNewPositionRequiresAle(false)
+    resetPositionForm()
     setStatusMessage(`${positionCode} position added.`)
+  }
+
+  const loadRegion4Example = () => {
+    setData((current) => ({
+      ...current,
+      positions: region4ExamplePositions(),
+      operators: current.operators.map((operator) => ({
+        ...operator,
+        positionPermissions: {
+          EXD: operator.ale,
+          DW: true,
+          DR: true,
+        },
+      })),
+    }))
+    setStatusMessage('Loaded the Region 4 example: EXD, DeltaWhite, and DeltaRed.')
+  }
+
+  const finishRegionSetup = () => {
+    if (data.positions.length === 0) {
+      setStatusMessage('Add at least one position, or load the Region 4 example.')
+      return
+    }
+
+    setData((current) => ({ ...current, setupComplete: true }))
+    setStatusMessage(data.regionName.trim()
+      ? `${data.regionName.trim()} is ready to schedule.`
+      : 'Region setup finished. You can add a region name later in Global Settings.')
   }
 
   const resetPositionForm = () => {
     setNewPositionCode('')
-    setNewPositionRequiresAle(false)
+    setNewPositionDisplayName('')
+    setNewPositionType('fixed')
+    setNewPositionChannel('')
+    setNewPositionSort('')
     setEditingPositionCode(null)
   }
 
@@ -449,8 +497,11 @@ function App() {
     if (!position) return
 
     setEditingPositionCode(position.name)
-    setNewPositionCode(position.shortName)
-    setNewPositionRequiresAle(position.requiresALE)
+    setNewPositionCode(position.name)
+    setNewPositionDisplayName(position.displayName)
+    setNewPositionType(position.type)
+    setNewPositionChannel(position.channel)
+    setNewPositionSort(String(position.sortOrder))
   }
 
   const savePositionEdit = () => {
@@ -486,12 +537,26 @@ function App() {
   const savePositionEditNow = (positionCode: string, codeChanged: boolean) => {
     if (!editingPositionCode) return
 
+    const channelResult = normalizeChannel(newPositionChannel)
+    if (channelResult.error) {
+      setStatusMessage(channelResult.error)
+      return
+    }
+
+    const sortOrder = Number(newPositionSort)
+    if (!Number.isInteger(sortOrder)) {
+      setStatusMessage('Sort order must be a whole number.')
+      return
+    }
+
     const result = editPosition(data, {
       positionCode: editingPositionCode,
       updates: {
         name: positionCode,
-        shortName: positionCode,
-        requiresALE: newPositionRequiresAle,
+        displayName: newPositionDisplayName.trim() || positionCode,
+        type: newPositionType,
+        channel: channelResult.channel,
+        sortOrder,
       },
       options: { allowCodeOrNameChange: codeChanged },
     })
@@ -1038,6 +1103,36 @@ function App() {
         </section>
 
         <p className="status-line">{statusMessage}</p>
+        {data.setupComplete ? null : (
+          <section className="setup-panel" aria-label="Region setup">
+            <p className="eyebrow">First-run setup</p>
+            <h3>Set up this message center</h3>
+            <p>Start with an empty position list. Add the seats this region uses, or load the Region 4 example.</p>
+            <label>
+              Region name
+              <input
+                type="text"
+                value={data.regionName}
+                onChange={(event) => setData((current) => ({ ...current, regionName: event.target.value }))}
+                placeholder="Army MARS Region 4"
+              />
+            </label>
+            <div className="form-actions">
+              <button type="button" onClick={loadRegion4Example}>Load Region 4 example</button>
+              <button type="button" className="primary" onClick={finishRegionSetup}>Finish setup</button>
+            </div>
+            {data.positions.length === 0 ? <p>No positions yet.</p> : (
+              <ul>
+                {sortedPositions(data.positions).map((position) => (
+                  <li key={position.name}>
+                    {position.name}: {position.displayName} ({position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}{position.channel ? `, channel ${position.channel}` : ''})
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p>Use Positions in the admin menu to add a seat with a code, name, type, optional channel, and sort order.</p>
+          </section>
+        )}
 
         <section className="admin-actions" aria-label="Administrative tools">
           <button type="button" onClick={() => setActiveAdminPanel('operators')}>Operators</button>
@@ -1051,6 +1146,15 @@ function App() {
             <p className="eyebrow">Smart Assign</p>
             <h3>Global Settings</h3>
           </div>
+          <label>
+            Region name
+            <input
+              type="text"
+              value={data.regionName}
+              onChange={(event) => setData((current) => ({ ...current, regionName: event.target.value }))}
+              placeholder="Army MARS Region 4"
+            />
+          </label>
           <label>
             Max shifts/month
             <select
@@ -1148,7 +1252,7 @@ function App() {
                       </label>
                     </div>
                     {holiday ? <p className="holiday-label">{holiday.name}</p> : null}
-                    {scheduleDay.coverage ? scheduleData.positions.map((position) => (
+                    {scheduleDay.coverage ? sortedPositions(scheduleData.positions).map((position) => (
                       <div className="assignment-row" key={position.name}>
                         <span className="screen-only">{position.shortName}</span>
                         <select
@@ -1220,7 +1324,7 @@ function App() {
                     checked={newOperatorAle}
                     onChange={(event) => setNewOperatorAle(event.target.checked)}
                   />
-                  ALE capable
+                  ALE qualified
                 </label>
 
                 <fieldset>
@@ -1242,19 +1346,19 @@ function App() {
                 <fieldset>
                   <legend>Allowed positions</legend>
                   <div className="chip-grid">
-                    {scheduleData.positions.map((position) => {
-                      const isExd = position.name === 'EXD'
-                      const checked = isExd ? newOperatorAle : newOperatorPermissions[position.name] !== false
+                    {sortedPositions(scheduleData.positions).map((position) => {
+                      const aleDuty = position.type === 'ale'
+                      const checked = aleDuty ? newOperatorAle : newOperatorPermissions[position.name] !== false
 
                       return (
                         <label className="chip-check" key={position.name}>
                           <input
                             type="checkbox"
                             checked={checked}
-                            disabled={isExd}
+                            disabled={aleDuty}
                             onChange={() => togglePositionPermission(position.name)}
                           />
-                          {position.shortName}
+                          {position.displayName}
                         </label>
                       )
                     })}
@@ -1351,7 +1455,7 @@ function App() {
                 </label>
                 <div className="form-actions">
                   <button type="submit" className="primary">Add Holiday</button>
-                  <button type="button" onClick={() => void importFederalHolidays()}>Import Federal Holidays</button>
+                  <button type="button" onClick={() => void importFederalHolidays()}>US federal holidays (optional)</button>
                 </div>
               </form>
 
@@ -1384,23 +1488,49 @@ function App() {
                 }}
               >
                 <label>
-                  Short code
+                  Code
                   <input
                     type="text"
-                    maxLength={6}
+                    maxLength={12}
                     value={newPositionCode}
-                    onChange={(event) => setNewPositionCode(event.target.value)}
-                    placeholder="ALT"
+                    onChange={(event) => setNewPositionCode(event.target.value.toUpperCase())}
+                    placeholder="DW"
                   />
                 </label>
-                <label className="check-row">
+                <label>
+                  Name
                   <input
-                    type="checkbox"
-                    checked={newPositionRequiresAle}
-                    onChange={(event) => setNewPositionRequiresAle(event.target.checked)}
-                    disabled={editingPositionCode === 'EXD'}
+                    type="text"
+                    value={newPositionDisplayName}
+                    onChange={(event) => setNewPositionDisplayName(event.target.value)}
+                    placeholder="DeltaWhite"
                   />
-                  Requires ALE
+                </label>
+                <label>
+                  Type
+                  <select value={newPositionType} onChange={(event) => setNewPositionType(event.target.value as PositionType)}>
+                    <option value="fixed">Fixed-frequency / net</option>
+                    <option value="ale">ALE duty</option>
+                  </select>
+                </label>
+                <label>
+                  Channel name (optional)
+                  <input
+                    type="text"
+                    maxLength={4}
+                    value={newPositionChannel}
+                    onChange={(event) => setNewPositionChannel(event.target.value.toUpperCase())}
+                    placeholder="AB12"
+                  />
+                </label>
+                <label>
+                  Sort order
+                  <input
+                    type="number"
+                    value={newPositionSort}
+                    onChange={(event) => setNewPositionSort(event.target.value)}
+                    placeholder="1"
+                  />
                 </label>
                 <div className="form-actions">
                   <button type="submit" className="primary">{editingPositionCode ? 'Save Position' : 'Add Position'}</button>
@@ -1408,10 +1538,11 @@ function App() {
                 </div>
               </form>
               <div className="table-list">
-                {scheduleData.positions.map((position) => (
+                {sortedPositions(scheduleData.positions).map((position) => (
                   <div className="table-row" key={position.name}>
-                    <strong>{position.shortName}</strong>
-                    <span>{position.requiresALE ? 'Requires ALE' : 'No ALE required'}</span>
+                    <strong>{position.name}</strong>
+                    <span>{position.displayName}{position.channel ? ` · ${position.channel}` : ''}</span>
+                    <span>{position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}</span>
                     <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
                     <button type="button" className="danger" onClick={() => confirmRemovePosition(position.name)}>Delete</button>
                   </div>

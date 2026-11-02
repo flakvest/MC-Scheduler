@@ -9,7 +9,9 @@ import {
 import { defaultPositions, type SchedulerData } from './schedulerTypes'
 
 const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData => ({
-  version: 1,
+  version: 2,
+  regionName: '',
+  setupComplete: true,
   operators: [],
   positions: defaultPositions,
   vacations: {},

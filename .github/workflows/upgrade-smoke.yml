@@ -1,0 +1,57 @@
+name: Upgrade smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  keep-data:
+    runs-on: windows-latest
+    steps:
+      - name: Seed a 0.0.8-style data folder
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:APPDATA 'com.marsmessagecenter.scheduler'
+          $years = Join-Path $root 'years'
+          New-Item -ItemType Directory -Force -Path $years | Out-Null
+          $meta = '{"version":1,"operators":[{"callsign":"KEEPME","ale":true,"unavailable":[],"positionPermissions":{"EXD":true}}],"positions":[{"name":"EXD","shortName":"EXD","requiresALE":true}],"vacations":{},"holidays":[],"schedule":{}}'
+          $year = '{"version":1,"year":2026,"schedule":{"2026-04-01":{"coverage":true,"assignments":{"EXD":"KEEPME"}}}}'
+          Set-Content -Encoding ascii -Path (Join-Path $root 'scheduler.json') -Value $meta
+          Set-Content -Encoding ascii -Path (Join-Path $years 'schedule-2026.json') -Value $year
+
+      - name: Install 0.0.9 silently
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:TEMP 'mc-0.0.9-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/flakvest/MC-Scheduler/releases/download/v0.0.9/MC.Scheduler_0.0.9_x64-setup.exe' -OutFile $exe
+          $proc = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          Write-Host "0.0.9 installer exit $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "0.0.9 installer failed" }
+
+      - name: Confirm data survived 0.0.9
+        shell: pwsh
+        run: |
+          $year = Join-Path $env:APPDATA 'com.marsmessagecenter.scheduler\years\schedule-2026.json'
+          if (-not (Test-Path $year)) { throw 'Year file missing after 0.0.9 install' }
+          if ((Get-Content $year -Raw) -notmatch 'KEEPME') { throw 'Marker missing after 0.0.9 install' }
+
+      - name: Install 0.1.0 silently over 0.0.9
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:TEMP 'mc-0.1.0-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/flakvest/MC-Scheduler/releases/download/v0.1.0/MC-Scheduler_0.1.0_x64-setup.exe' -OutFile $exe
+          $proc = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          Write-Host "0.1.0 installer exit $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "0.1.0 installer failed" }
+
+      - name: Confirm data survived 0.1.0
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:APPDATA 'com.marsmessagecenter.scheduler'
+          $year = Join-Path $root 'years\schedule-2026.json'
+          $meta = Join-Path $root 'scheduler.json'
+          if (-not (Test-Path $year)) { throw 'Year file missing after 0.1.0 install' }
+          if (-not (Test-Path $meta)) { throw 'scheduler.json missing after 0.1.0 install' }
+          if ((Get-Content $year -Raw) -notmatch 'KEEPME') { throw 'Marker missing after 0.1.0 install' }
+          if ((Get-Content $meta -Raw) -notmatch 'KEEPME') { throw 'Operator missing after 0.1.0 install' }
+          Write-Host 'DATA_SURVIVED'
+          Get-ChildItem $root -Recurse | Select-Object -ExpandProperty FullName

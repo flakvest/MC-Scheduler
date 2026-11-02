@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MC Scheduler",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "identifier": "com.marsmessagecenter.scheduler",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -21,12 +21,24 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://date.nager.at; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' https://date.nager.at https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://github-releases.githubusercontent.com; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.png"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIxRUY3MzkzMzgyMTg5NjkKUldScGlTRTRrM1B2SVFpWm1PK2ZZMGxTcUgxb0t1MDlWYklrU0wzMi85eDJ4dWNjSWowa2lGRFgK",
+      "endpoints": [
+        "https://github.com/flakvest/MC-Scheduler/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

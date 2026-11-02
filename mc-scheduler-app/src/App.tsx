@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { backupToJson, parseBackupJson } from './domain/backupFiles'
+import { backupToJson, fullBackupToJson, parseBackupJson, readSmartAssignSettingsFromBackup } from './domain/backupFiles'
+import {
+  describeBackupLocation,
+  fullBackupFilename,
+  isDesktopApp,
+  lookForUpdate,
+  type DesktopUpdate,
+} from './domain/appUpdates'
+import { UpdateDialog } from './UpdateDialog'
 import { clearAssignmentsForMonth, createMonthSnapshot, monthHasAssignments } from './domain/monthTools'
 import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
@@ -56,7 +64,15 @@ function App() {
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
-  const [appVersion, setAppVersion] = useState('0.0.9')
+  const [appVersion, setAppVersion] = useState('0.1.0')
+  const [availableUpdate, setAvailableUpdate] = useState<DesktopUpdate | null>(null)
+  const [updateBackupPath, setUpdateBackupPath] = useState<string | null>(null)
+  const [updateBackupMessage, setUpdateBackupMessage] = useState<string | null>(null)
+  const [updateSkipConfirmed, setUpdateSkipConfirmed] = useState(false)
+  const [confirmingUpdateSkip, setConfirmingUpdateSkip] = useState(false)
+  const [updateInstalling, setUpdateInstalling] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState<string | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const [newCallsign, setNewCallsign] = useState('')
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
@@ -133,6 +149,32 @@ function App() {
   useEffect(() => {
     saveSmartAssignSettings(smartAssignSettings)
   }, [smartAssignSettings])
+
+  useEffect(() => {
+    let active = true
+
+    const checkOnLaunch = async () => {
+      try {
+        const update = await lookForUpdate()
+        if (!active || !update) return
+        setAvailableUpdate(update)
+        setUpdateBackupPath(null)
+        setUpdateBackupMessage(null)
+        setUpdateSkipConfirmed(false)
+        setConfirmingUpdateSkip(false)
+        setUpdateError(null)
+        setUpdateProgress(null)
+        setStatusMessage(`Update ${update.version} is available. Back up the full database before installing.`)
+      } catch {
+        // A failed launch check stays quiet. The manual check reports the problem.
+      }
+    }
+
+    void checkOnLaunch()
+    return () => {
+      active = false
+    }
+  }, [])
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstWeekday = new Date(year, month - 1, 1).getDay()
@@ -566,7 +608,7 @@ function App() {
   }
 
   const saveTextFile = async (contents: string, filename: string, mimeType: string, status: string) => {
-    const isTauri = '__TAURI_INTERNALS__' in window
+    const isTauri = isDesktopApp(window)
 
     if (isTauri) {
       const [{ save }, { writeTextFile }] = await Promise.all([
@@ -577,12 +619,12 @@ function App() {
 
       if (!path) {
         setStatusMessage('Save canceled.')
-        return
+        return null
       }
 
       await writeTextFile(path, contents)
-      setStatusMessage(status)
-      return
+      if (status) setStatusMessage(status)
+      return path
     }
 
     const blob = new Blob([contents], { type: mimeType })
@@ -591,7 +633,29 @@ function App() {
     link.download = filename
     link.click()
     URL.revokeObjectURL(link.href)
-    setStatusMessage(status)
+    if (status) setStatusMessage(status)
+    return filename
+  }
+
+  const exportFullBackup = async () => {
+    const filename = fullBackupFilename()
+
+    try {
+      const saved = await saveTextFile(
+        fullBackupToJson(scheduleData, smartAssignSettings),
+        filename,
+        'application/json',
+        '',
+      )
+      if (!saved) return null
+
+      const message = describeBackupLocation(saved, filename)
+      setStatusMessage(message)
+      return { saved, message }
+    } catch {
+      setStatusMessage('Full backup export failed.')
+      return null
+    }
   }
 
   const exportMonthBackup = async () => {
@@ -608,16 +672,7 @@ function App() {
   }
 
   const exportBackup = async () => {
-    try {
-      await saveTextFile(
-        backupToJson(scheduleData),
-        `mc-scheduler-backup-${currentPrefix}.json`,
-        'application/json',
-        'Backup exported.',
-      )
-    } catch {
-      setStatusMessage('Backup export failed.')
-    }
+    await exportFullBackup()
   }
 
   const downloadScheduleText = async () => {
@@ -637,12 +692,74 @@ function App() {
     window.print()
   }
 
+  const presentUpdate = (update: DesktopUpdate) => {
+    setAvailableUpdate(update)
+    setUpdateBackupPath(null)
+    setUpdateBackupMessage(null)
+    setUpdateSkipConfirmed(false)
+    setConfirmingUpdateSkip(false)
+    setUpdateInstalling(false)
+    setUpdateProgress(null)
+    setUpdateError(null)
+    setStatusMessage(`Update ${update.version} is available. Back up the full database before installing.`)
+  }
+
+  const checkForUpdates = async () => {
+    if (!isDesktopApp(window)) {
+      setStatusMessage('Update checks run in the installed desktop app.')
+      return
+    }
+
+    setStatusMessage('Checking for updates...')
+    try {
+      const update = await lookForUpdate()
+      if (!update) {
+        setAvailableUpdate(null)
+        setStatusMessage(`Version ${appVersion} is the latest.`)
+        return
+      }
+      presentUpdate(update)
+    } catch {
+      setStatusMessage('Could not check for updates. Check the network and try again.')
+    }
+  }
+
+  const backupBeforeUpdate = async () => {
+    const result = await exportFullBackup()
+    if (!result) return
+
+    setUpdateBackupPath(result.saved)
+    setUpdateBackupMessage(result.message)
+    setUpdateSkipConfirmed(false)
+    setConfirmingUpdateSkip(false)
+  }
+
+  const installAvailableUpdate = async () => {
+    if (!availableUpdate) return
+
+    setUpdateInstalling(true)
+    setUpdateError(null)
+    setUpdateProgress('Downloading update...')
+    try {
+      await availableUpdate.downloadAndInstall(setUpdateProgress)
+      setUpdateProgress('Update installed. Restarting...')
+      await availableUpdate.relaunch()
+    } catch {
+      setUpdateInstalling(false)
+      setUpdateProgress(null)
+      setUpdateError('The update could not be installed. This version is still running.')
+    }
+  }
+
   const importBackup = async (file: File | undefined) => {
     if (!file) return
 
     try {
-      const imported = parseBackupJson(await file.text())
+      const text = await file.text()
+      const imported = parseBackupJson(text)
+      const importedSettings = readSmartAssignSettingsFromBackup(text)
       setData(imported)
+      if (importedSettings) setSmartAssignSettings(importedSettings)
       setStatusMessage(`Imported ${imported.operators.length} operators and ${imported.positions.length} positions.`)
     } catch {
       setStatusMessage('Import failed. The selected file is not a valid scheduler backup.')
@@ -864,6 +981,7 @@ function App() {
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
+            <button type="button" className="secondary" onClick={() => void checkForUpdates()}>Check for updates</button>
             <button type="button" className="secondary danger" onClick={confirmClearCalendarAssignments}>Clear Calendar</button>
             <button type="button" className="secondary danger" onClick={confirmZeroizeAllData}>Zeroize</button>
             <button type="button" className="primary" onClick={runSmartAssign}>Smart Assign</button>
@@ -1303,6 +1421,32 @@ function App() {
             ) : null}
           </aside>
           {activeAdminPanel ? <button type="button" className="drawer-backdrop" aria-label="Close admin drawer" onClick={() => setActiveAdminPanel(null)} /> : null}
+          {availableUpdate ? (
+            <UpdateDialog
+              currentVersion={appVersion}
+              version={availableUpdate.version}
+              notes={availableUpdate.notes}
+              backupPath={updateBackupPath}
+              backupMessage={updateBackupMessage}
+              skipConfirmed={updateSkipConfirmed}
+              confirmingSkip={confirmingUpdateSkip}
+              installing={updateInstalling}
+              progress={updateProgress}
+              error={updateError}
+              onBackup={() => void backupBeforeUpdate()}
+              onAskSkip={() => setConfirmingUpdateSkip(true)}
+              onConfirmSkip={() => {
+                setUpdateSkipConfirmed(true)
+                setConfirmingUpdateSkip(false)
+              }}
+              onCancelSkip={() => setConfirmingUpdateSkip(false)}
+              onInstall={() => void installAvailableUpdate()}
+              onClose={() => {
+                if (updateInstalling) return
+                setAvailableUpdate(null)
+              }}
+            />
+          ) : null}
           {confirmAction ? (
             <div className="confirm-backdrop" role="presentation">
               <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">

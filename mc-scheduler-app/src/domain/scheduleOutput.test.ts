@@ -8,6 +8,8 @@ const data: SchedulerData = {
   setupComplete: true,
   backToBackPolicy: 'avoid',
   weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
   operators: [],
   positions: defaultPositions,
   vacations: {},
@@ -31,6 +33,17 @@ describe('schedule output', () => {
     expect(output).toContain('MARS SCHEDULE: APRIL 2026')
     expect(output).toContain('01: EXD:ALPHA | DW:BRAVO | DR:OPEN')
     expect(output).toContain('02: --- NO COVERAGE ---')
+  })
+
+  it('prints a channel name beside the position code', () => {
+    const output = generateScheduleText({
+      ...data,
+      positions: data.positions.map((position) => (
+        position.name === 'DW' ? { ...position, channel: 'AB12' } : position
+      )),
+    }, 2026, 4)
+
+    expect(output).toContain('01: EXD:ALPHA | DW AB12:BRAVO | DR:OPEN')
   })
 
   it('uses the region name in the header when one is set', () => {

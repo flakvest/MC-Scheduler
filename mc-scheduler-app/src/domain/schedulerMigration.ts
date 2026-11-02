@@ -1,6 +1,10 @@
 import { normalizeHolidays } from './holidayRules'
 import {
+  DEFAULT_MAX_SHIFTS_PER_MONTH,
+  DEFAULT_MAX_SHIFTS_PER_WEEK,
   emptySchedulerData,
+  MAX_SHIFTS_PER_MONTH_CAP,
+  MAX_SHIFTS_PER_WEEK_CAP,
   region4ExamplePositions,
   type Operator,
   type BackToBackPolicy,
@@ -79,7 +83,12 @@ const operatorFromRaw = (value: unknown): Operator | null => {
   const listedQualifications = Array.isArray(value.qualifications)
     ? value.qualifications.filter((item): item is string => typeof item === 'string').map((item) => item.toUpperCase())
     : []
-  const ale = value.ale === true || listedQualifications.includes('ALE')
+  const ale = value.ale === true
+    || value.canEXD === true
+    || value.canBIGTOPDELTA === true
+    || listedQualifications.includes('ALE')
+  const maxShiftsPerMonth = optionalShiftLimit(value.maxShiftsPerMonth, MAX_SHIFTS_PER_MONTH_CAP)
+  const maxShiftsPerWeek = optionalShiftLimit(value.maxShiftsPerWeek, MAX_SHIFTS_PER_WEEK_CAP)
   const positionPermissions = isRecord(value.positionPermissions)
     ? Object.entries(value.positionPermissions).reduce<Record<string, boolean>>((permissions, [code, allowed]) => {
       const name = normalizeCode(code)
@@ -93,7 +102,19 @@ const operatorFromRaw = (value: unknown): Operator | null => {
     ale,
     unavailable: normalizeWeekdays(value.unavailable),
     positionPermissions,
+    ...(maxShiftsPerMonth === undefined ? {} : { maxShiftsPerMonth }),
+    ...(maxShiftsPerWeek === undefined ? {} : { maxShiftsPerWeek }),
   }
+}
+
+const optionalShiftLimit = (value: unknown, cap: number): number | undefined => {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > cap) return undefined
+  return value
+}
+
+const regionShiftLimit = (value: unknown, fallback: number, cap: number) => {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > cap) return fallback
+  return value
 }
 
 const scheduleFromRaw = (value: unknown): Schedule => {
@@ -172,6 +193,12 @@ export function migrateSchedulerData(value: unknown): { data: SchedulerData, mig
   const weekStartsOn = sourceVersion === 1
     ? 1
     : normalizeWeekdays([value.weekStartsOn])[0] ?? 1
+  const maxShiftsPerMonth = sourceVersion === 1
+    ? DEFAULT_MAX_SHIFTS_PER_MONTH
+    : regionShiftLimit(value.maxShiftsPerMonth, DEFAULT_MAX_SHIFTS_PER_MONTH, MAX_SHIFTS_PER_MONTH_CAP)
+  const maxShiftsPerWeek = sourceVersion === 1
+    ? DEFAULT_MAX_SHIFTS_PER_WEEK
+    : regionShiftLimit(value.maxShiftsPerWeek, DEFAULT_MAX_SHIFTS_PER_WEEK, MAX_SHIFTS_PER_WEEK_CAP)
 
   return {
     migrated: sourceVersion === 1,
@@ -181,6 +208,8 @@ export function migrateSchedulerData(value: unknown): { data: SchedulerData, mig
       setupComplete,
       backToBackPolicy,
       weekStartsOn,
+      maxShiftsPerMonth,
+      maxShiftsPerWeek,
       operators,
       positions,
       vacations,

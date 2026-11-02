@@ -1,10 +1,12 @@
 # Test installer only. This workflow does not create a release, tag, or latest.json.
 # Installed copies keep checking the published 0.1.0 manifest and are not offered this build.
+# The setup file is still version 0.1.0 and still uses the real data folder
+# com.marsmessagecenter.scheduler. Back up that PC before installing it over a live schedule.
+# It runs when this branch is pushed, or when someone starts it by hand. It does not run for every pull request.
 
 name: Test Windows installer
 
 on:
-  pull_request:
   push:
     branches:
       - cursor/generic-regions-1f52
@@ -20,8 +22,6 @@ concurrency:
 jobs:
   installer:
     name: Build test installer
-    # A push to this branch also starts a pull_request run. Build once, from the push.
-    if: github.event_name != 'pull_request' || github.head_ref != 'cursor/generic-regions-1f52'
     runs-on: windows-latest
     steps:
       - name: Check out the repository
@@ -79,15 +79,17 @@ jobs:
           $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $setup = Get-ChildItem src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
           if (-not $setup) { throw "NSIS setup exe was not produced." }
+          $testName = "MC-Scheduler-TEST_${version}_x64-setup.exe"
+          Copy-Item $setup.FullName (Join-Path $setup.DirectoryName $testName)
           "version=$version" >> $env:GITHUB_OUTPUT
-          "filename=$($setup.Name)" >> $env:GITHUB_OUTPUT
+          "filename=$testName" >> $env:GITHUB_OUTPUT
           Write-Host "Test installer version $version"
-          Write-Host "Test installer file $($setup.Name)"
+          Write-Host "Test installer file $testName"
 
       - name: Upload the test installer
         uses: actions/upload-artifact@v4
         with:
           name: MC-Scheduler-${{ steps.installer.outputs.version }}-test-windows
-          path: mc-scheduler-app/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: mc-scheduler-app/src-tauri/target/release/bundle/nsis/MC-Scheduler-TEST_*-setup.exe
           if-no-files-found: error
           retention-days: 30

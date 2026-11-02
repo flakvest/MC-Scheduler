@@ -12,6 +12,8 @@ const base = (positions = region4ExamplePositions()): SchedulerData => ({
   setupComplete: true,
   backToBackPolicy: 'avoid',
   weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
   operators: [
     {
       callsign: 'ALPHA',
@@ -148,10 +150,25 @@ describe('legacy Big Top Delta import', () => {
     expect(parsed.positions[0].name).toBe('EXD')
     expect(parsed.positions[0].type).toBe('ale')
     expect(parsed.positions[0].assignmentPeriod).toBe('daily')
+    expect(parsed.operators[0].ale).toBe(true)
     expect(parsed.backToBackPolicy).toBe('avoid')
     expect(parsed.weekStartsOn).toBe(1)
-    expect(parsed.operators[0].ale).toBe(true)
     expect(parsed.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+  })
+
+  it('treats canEXD from the old HTML backup as ALE qualified when ale is missing', () => {
+    const parsed = parseBackupJson(JSON.stringify({
+      operators: [{ callsign: 'alpha', canEXD: true }],
+      positions: [{ name: 'EXD', shortName: 'EXD', requiresALE: true }],
+      schedule: {
+        '2026-04-01': { coverage: true, exd: 'alpha' },
+      },
+    }))
+
+    expect(parsed.operators[0].ale).toBe(true)
+    expect(parsed.operators[0].positionPermissions.EXD).toBe(true)
+    expect(parsed.maxShiftsPerMonth).toBe(5)
+    expect(parsed.maxShiftsPerWeek).toBe(2)
   })
 })
 
@@ -168,7 +185,24 @@ describe('scheduling rule defaults', () => {
 
     expect(migrated.data.backToBackPolicy).toBe('avoid')
     expect(migrated.data.weekStartsOn).toBe(1)
+    expect(migrated.data.maxShiftsPerMonth).toBe(5)
+    expect(migrated.data.maxShiftsPerWeek).toBe(2)
     expect(migrated.data.positions[0].assignmentPeriod).toBe('daily')
+  })
+
+  it('keeps a current file that turns the shift limits off', () => {
+    const migrated = migrateSchedulerData({
+      version: 2,
+      maxShiftsPerMonth: 0,
+      maxShiftsPerWeek: 0,
+      operators: [{ callsign: 'ALPHA', ale: true, maxShiftsPerMonth: 1, maxShiftsPerWeek: 0 }],
+      positions: [],
+      schedule: {},
+    })
+
+    expect(migrated.data.maxShiftsPerMonth).toBe(0)
+    expect(migrated.data.maxShiftsPerWeek).toBe(0)
+    expect(migrated.data.operators[0]).toMatchObject({ maxShiftsPerMonth: 1, maxShiftsPerWeek: 0 })
   })
 
   it('keeps a current file that allows back-to-back and uses a weekly seat', () => {
@@ -215,6 +249,8 @@ describe('scheduling rule defaults', () => {
     expect(emptySchedulerData()).toMatchObject({
       backToBackPolicy: 'avoid',
       weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
       positions: [],
     })
   })

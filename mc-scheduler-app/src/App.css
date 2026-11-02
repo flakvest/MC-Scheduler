@@ -257,6 +257,17 @@ select {
   max-width: 360px;
 }
 
+.setup-error {
+  margin: 0;
+  color: #9f2f2f;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+button[aria-disabled='true'] {
+  opacity: 0.55;
+}
+
 .admin-actions {
   display: flex;
   flex-wrap: wrap;

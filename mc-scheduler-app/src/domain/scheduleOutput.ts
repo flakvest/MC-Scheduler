@@ -27,9 +27,10 @@ export function generateScheduleText(data: SchedulerData, year: number, month: n
       continue
     }
 
-    const assignments = sortedPositions(data.positions).map((position) =>
-      `${position.shortName}:${scheduleDay.assignments[position.name] || 'OPEN'}`,
-    )
+    const assignments = sortedPositions(data.positions).map((position) => {
+      const seat = position.channel ? `${position.shortName} ${position.channel}` : position.shortName
+      return `${seat}:${scheduleDay.assignments[position.name] || 'OPEN'}`
+    })
 
     lines.push(`${String(day).padStart(2, '0')}: ${assignments.join(' | ')}`)
   }

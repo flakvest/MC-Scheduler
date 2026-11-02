@@ -102,6 +102,80 @@ const worksAdjacentWeek = (data: SchedulerData, callsign: Callsign, dateStr: Iso
     || workedInWeekStarting(data, callsign, addDays(start, 7))
 }
 
+const finiteShiftLimit = (value: number) => value > 0 ? value : Number.POSITIVE_INFINITY
+
+const shiftLimitFor = (override: number | undefined, regionLimit: number) =>
+  finiteShiftLimit(typeof override === 'number' ? override : regionLimit)
+
+const holderCounts = (data: SchedulerData, dates: IsoDate[], positionName: PositionCode) => {
+  const counts = new Map<Callsign, number>()
+  dates.forEach((date) => {
+    const callsign = data.schedule[date]?.assignments[positionName]
+    if (!callsign) return
+    counts.set(callsign, (counts.get(callsign) ?? 0) + 1)
+  })
+  return counts
+}
+
+const strictMajorityHolder = (counts: Map<Callsign, number>): Callsign | null => {
+  let best = ''
+  let bestCount = 0
+  let tied = false
+
+  counts.forEach((count, callsign) => {
+    if (count > bestCount) {
+      best = callsign
+      bestCount = count
+      tied = false
+      return
+    }
+    if (count === bestCount) tied = true
+  })
+
+  return best && !tied ? best : null
+}
+
+export function operatorsReplacedByWeeklyAssign(
+  data: SchedulerData,
+  dateStr: IsoDate,
+  positionCode: PositionCode,
+  callsign: Callsign,
+): Callsign[] {
+  const position = data.positions.find((item) => item.name === positionCode)
+  if (!position || position.assignmentPeriod !== 'weekly' || !callsign) return []
+
+  const replaced = new Set<Callsign>()
+  coverageDatesInWeek(data, dateStr, false).forEach((date) => {
+    const existing = data.schedule[date]?.assignments[position.name]
+    if (existing && existing !== callsign) replaced.add(existing)
+  })
+  return [...replaced]
+}
+
+export function clearWeeklyHoldsTouchingMonth(data: SchedulerData, month: string): SchedulerData {
+  const weekly = data.positions.filter((position) => position.assignmentPeriod === 'weekly')
+  if (weekly.length === 0) return data
+
+  const [year, monthNumber] = month.split('-').map(Number)
+  const daysInMonth = new Date(year, monthNumber, 0).getDate()
+  const starts = new Set<IsoDate>()
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    starts.add(startOfWeek(isoDateForMonthDay(year, monthNumber, day), data.weekStartsOn))
+  }
+
+  const nextData = structuredClone(data)
+  starts.forEach((start) => {
+    weekDates(start, nextData.weekStartsOn).forEach((date) => {
+      const day = nextData.schedule[date]
+      if (!day) return
+      weekly.forEach((position) => {
+        delete day.assignments[position.name]
+      })
+    })
+  })
+  return nextData
+}
+
 const getOperator = (operators: Operator[], callsign: Callsign) =>
   operators.find((operator) => operator.callsign === callsign)
 
@@ -208,11 +282,22 @@ function canHoldWeeklyPosition(
   options: Pick<SmartAssignOptions, 'maxShifts' | 'preventBackToBack' | 'limitWeekly' | 'maxShiftsPerWeek'>,
 ): AssignmentCheck {
   const dates = coverageDatesInWeek(data, dateStr, false)
+  const counts = holderCounts(data, dates, position.name)
+  const majority = strictMajorityHolder(counts)
+  const otherHolders = [...counts.keys()].filter((holder) => holder !== callsign)
+
+  if (otherHolders.length > 0 && majority !== callsign) {
+    return {
+      allowed: false,
+      reason: otherHolders.length === 1 && counts.size === 1
+        ? 'This week is already assigned to someone else.'
+        : 'This week is split between more than one operator.',
+    }
+  }
 
   for (const date of dates) {
     const existing = data.schedule[date]?.assignments[position.name]
-    if (existing === callsign) continue
-    if (existing) return { allowed: false, reason: 'This week is already assigned to someone else.' }
+    if (existing) continue
     if (date === dateStr) continue
 
     const check = canAssignOperator(data, date, position, callsign)
@@ -223,12 +308,15 @@ function canHoldWeeklyPosition(
     return { allowed: false, reason: `${callsign} already works an adjacent week.` }
   }
 
+  const holder = getOperator(data.operators, callsign)
+  if (!holder) return { allowed: false, reason: 'Operator does not exist.' }
+  const monthLimit = shiftLimitFor(holder.maxShiftsPerMonth, options.maxShifts)
   const prefixes = new Set(dates.map((date) => date.slice(0, 7)))
   for (const prefix of prefixes) {
     const extra = dates.filter((date) =>
-      date.startsWith(prefix) && data.schedule[date]?.assignments[position.name] !== callsign,
+      date.startsWith(prefix) && !data.schedule[date]?.assignments[position.name],
     ).length
-    if (getShiftCount(data.schedule, data.positions, callsign, prefix) + extra > options.maxShifts) {
+    if (getShiftCount(data.schedule, data.positions, callsign, prefix) + extra > monthLimit) {
       return { allowed: false, reason: 'Operator reached the monthly shift limit.' }
     }
   }
@@ -273,8 +361,13 @@ export function canAssignOperator(
   }
 
   const prefix = dateStr.slice(0, 7)
+  const monthLimit = shiftLimitFor(operator.maxShiftsPerMonth, options.maxShifts)
+  const regionWeek = typeof options.maxShiftsPerWeek === 'number'
+    ? options.maxShiftsPerWeek
+    : options.limitWeekly ? 2 : 0
+  const weeklyLimit = shiftLimitFor(operator.maxShiftsPerWeek, regionWeek)
 
-  if (getShiftCount(data.schedule, data.positions, callsign, prefix) >= options.maxShifts) {
+  if (getShiftCount(data.schedule, data.positions, callsign, prefix) >= monthLimit) {
     return { allowed: false, reason: 'Operator reached the monthly shift limit.' }
   }
 
@@ -285,8 +378,6 @@ export function canAssignOperator(
   if (options.preventBackToBack && workedOnDate(data.schedule, data.positions, callsign, addDays(dateStr, 1))) {
     return { allowed: false, reason: `${callsign} already works the next day.` }
   }
-
-  const weeklyLimit = options.maxShiftsPerWeek ?? (options.limitWeekly ? 2 : Number.POSITIVE_INFINITY)
 
   if (getWeeklyShiftCount(data.schedule, data.positions, callsign, dateStr) >= weeklyLimit) {
     return { allowed: false, reason: 'Operator reached the weekly shift limit.' }
@@ -326,8 +417,10 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
         const openDates = dates.filter((date) => !nextData.schedule[date]?.assignments[position.name])
         if (openDates.length === 0) return
 
-        const holders = [...new Set(dates.map((date) => nextData.schedule[date]?.assignments[position.name]).filter(Boolean))]
-        if (holders.length > 1) {
+        const counts = holderCounts(nextData, dates, position.name)
+        const majority = strictMajorityHolder(counts)
+        const holders = [...counts.keys()]
+        if (holders.length > 1 && !majority) {
           blockedCount += 1
           issues.push({
             date: dateStr,
@@ -337,9 +430,11 @@ export function smartAssign(data: SchedulerData, options: SmartAssignOptions): S
           return
         }
 
-        const candidates = (holders.length === 1
-          ? nextData.operators.filter((operator) => operator.callsign === holders[0])
-          : nextData.operators
+        const candidates = (majority
+          ? nextData.operators.filter((operator) => operator.callsign === majority)
+          : holders.length === 1
+            ? nextData.operators.filter((operator) => operator.callsign === holders[0])
+            : nextData.operators
         )
           .filter((operator) => canAssignOperator(nextData, dateStr, position, operator.callsign, options).allowed)
           .sort((left, right) =>
@@ -417,8 +512,9 @@ export function findOpenAssignmentIssues(data: SchedulerData, options: SmartAssi
         seenWeeks.add(token)
 
         const dates = coverageDatesInWeek(nextData, dateStr, false)
-        const holders = [...new Set(dates.map((date) => nextData.schedule[date]?.assignments[position.name]).filter(Boolean))]
-        if (holders.length > 1) {
+        const counts = holderCounts(nextData, dates, position.name)
+        const majority = strictMajorityHolder(counts)
+        if (counts.size > 1 && !majority) {
           issues.push({
             date: dateStr,
             position: position.shortName,

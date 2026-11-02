@@ -4,14 +4,21 @@ MC Scheduler can be used by any Army MARS region. A region names itself and crea
 
 ## First-run setup
 
-A new install starts with no positions. The setup panel asks for:
+A new install starts with no positions. Add the seats on the setup panel itself. Each seat needs a code, a name, a type, daily or weekly assignment, an optional channel name, and a sort order. The list can be edited or deleted before you finish.
 
-- **Region name.** This is the name printed at the top of the text schedule. You can leave it blank. A blank name prints `MARS SCHEDULE:`. You can change the name later under **Global Settings**.
-- **Positions.** Each position has a short code, a name, a type, a daily or weekly assignment, an optional channel name, and a sort order.
+**Finish setup** stays unavailable until the region name is filled in and at least one position exists. The reason is written next to the button. A click that still fails puts that same message in an error line beside the button.
+
+The setup panel also asks for:
+
+- **Region name.** This is the name printed at the top of the text schedule. You can change it later under **Global Settings**.
 - **Back-to-back.** Avoid back-to-back is the default. Smart Assign and Check Issues then keep an operator off the previous calendar day and the next calendar day. Friday and the following Monday are still allowed. Allow back-to-back turns that rule off. One person still holds only one seat on a day. Hand-picking a day does not use this rule.
 - **Week starts on.** Monday is the default. This is used only by weekly seats. Every position in the region shares the same week.
+- **Max shifts/month.** The default is 5. Choose **No limit**, or a number from 1 to 31. Each coverage day counts, including each day of a weekly seat. A Monday-through-Friday weekly seat is 5, so the default allows one such week in a month.
+- **Max daily shifts/week.** The default is 2. This is the rolling week used for daily seats. Choose **No limit** to turn it off. It does not limit a weekly seat, because 2 would make a Monday-through-Friday week impossible.
 
-**Load Region 4 example** creates three positions:
+**Load Region 4 example** creates three positions. If positions already exist, the app asks before it replaces them. Assignments for seats that are not in the example are removed, so a hidden seat cannot keep blocking one person from one seat per day. The example does not change the shift limits. A new region, and a file migrated from 0.0.8, 0.0.9, or 0.1.0, starts at 5 shifts per month and 2 daily shifts per rolling week.
+
+The example positions are:
 
 | Code | Name | Type | Assignment |
 | --- | --- | --- | --- |
@@ -19,14 +26,14 @@ A new install starts with no positions. The setup panel asks for:
 | DW | DeltaWhite | Fixed-frequency / net | Daily |
 | DR | DeltaRed | Fixed-frequency / net | Daily |
 
-Click **Finish setup** after at least one position exists. The calendar then uses one coverage switch per day for every position. ALE duty seats are filled first. One person can hold only one seat on a day.
+After setup, the calendar uses one coverage switch per day for every position. ALE duty seats are filled first. One person can hold only one seat on a day. A position code may use letters, numbers, and hyphens only.
 
 You can change the back-to-back rule and the week start later under **Global Settings**. The old **No back-to-back** checkbox is no longer used.
 
 ## Position types
 
 - **ALE duty.** The operator must be marked **ALE qualified**. A region can have two or more of these seats. Every one of them uses that same qualification.
-- **Fixed-frequency / net.** Any operator who is allowed on that seat can take it. ALE qualification is not required.
+- **Fixed-frequency / net.** Any operator who is allowed on that seat can take it. ALE qualification is not required. Changing an ALE seat to a net removes that ALE requirement for every operator immediately.
 
 ## Daily and weekly seats
 
@@ -35,17 +42,21 @@ Assignment is chosen per position, so one seat can be weekly while the nets stay
 - **Daily.** The seat is filled one coverage day at a time. This is the default and matches schedules saved before this choice existed.
 - **Weekly.** One operator holds that seat for every coverage day in the week. A holiday, a weekend, or a day marked off stays empty, and the same person keeps the other coverage days. Choosing someone on the calendar fills the whole week. Choosing Open clears the whole week. If any coverage day in that week would put the person on a second seat, or they are unavailable, the week is left unchanged.
 
-A weekly seat can cross a month boundary. Smart Assign and a hand pick write those days in the neighboring month too.
+A weekly seat can cross a month boundary. Smart Assign and a hand pick write those days in the neighboring month too. Choosing Open, or clearing the month, also clears that weekly seat on the days that fall in the neighboring month. Daily seats outside the month stay.
 
-With **Avoid back-to-back**, a weekly seat also stays off the previous week and the next week when that operator already works either week, on any seat. **Allow back-to-back** turns that off. A week that already has two different people is left as it is, and Check Issues says the week is split.
+Choosing a person for a weekly seat that someone else already holds, including on a day in the other month, asks first and names who would be replaced.
 
-The text schedule and the printed calendar still list one line per day. A weekly seat shows the same operator on each of that week's coverage days.
+Changing the week start, or switching a filled seat from Daily to Weekly, keeps the assignments already on the calendar. If one week then has more than one person, Smart Assign fills the open days with whoever already has the most coverage days that week, when that person is eligible. A tie stays open, and Check Issues says the week is split.
 
-**Max shifts/week** still limits daily seats. It does not limit a weekly hold, because the usual maximum of 2 would make a Monday-through-Friday week impossible. Each coverage day of a weekly hold still counts toward **Max shifts/month**.
+With **Avoid back-to-back**, a weekly seat also stays off the previous week and the next week when that operator already works either week, on any seat. **Allow back-to-back** turns that off.
+
+The text schedule and the printed calendar still list one line per day. A channel, when one is set, is printed beside the position code. A weekly seat shows the same operator on each of that week's coverage days.
+
+An operator record may include its own `maxShiftsPerMonth` or `maxShiftsPerWeek`. Those replace the region numbers for that person. `0` means no limit there too. Editing the operator in the app keeps those overrides.
 
 ## Channel name
 
-Channel name is optional. If you fill it in, it must be exactly four letters or numbers, such as `AB12`. The app stores it in capitals. Anything else shows: "Channel name must be exactly 4 letters or numbers, such as AB12."
+Channel name is optional. If you fill it in, it must be exactly four letters or numbers, such as `AB12`. The app stores it in capitals. Anything else shows: "Channel name must be exactly 4 letters or numbers, such as AB12." The text schedule and the printed calendar show it next to the position code.
 
 ## Holidays
 

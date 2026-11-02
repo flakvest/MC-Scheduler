@@ -22,6 +22,8 @@ export type Operator = {
   ale: boolean
   unavailable: Weekday[]
   positionPermissions: Record<PositionCode, boolean>
+  maxShiftsPerMonth?: number
+  maxShiftsPerWeek?: number
 }
 
 export type Vacation = {
@@ -46,12 +48,19 @@ export type ScheduleDay = {
 
 export type Schedule = Record<IsoDate, ScheduleDay>
 
+export const DEFAULT_MAX_SHIFTS_PER_MONTH = 5
+export const DEFAULT_MAX_SHIFTS_PER_WEEK = 2
+export const MAX_SHIFTS_PER_MONTH_CAP = 31
+export const MAX_SHIFTS_PER_WEEK_CAP = 14
+
 export type SchedulerData = {
   version: 2
   regionName: string
   setupComplete: boolean
   backToBackPolicy: BackToBackPolicy
   weekStartsOn: Weekday
+  maxShiftsPerMonth: number
+  maxShiftsPerWeek: number
   operators: Operator[]
   positions: Position[]
   vacations: VacationMap
@@ -90,6 +99,8 @@ export const emptySchedulerData = (): SchedulerData => ({
   setupComplete: false,
   backToBackPolicy: 'avoid',
   weekStartsOn: 1,
+  maxShiftsPerMonth: DEFAULT_MAX_SHIFTS_PER_MONTH,
+  maxShiftsPerWeek: DEFAULT_MAX_SHIFTS_PER_WEEK,
   operators: [],
   positions: [],
   vacations: {},

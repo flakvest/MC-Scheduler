@@ -53,8 +53,8 @@ After that update:
 - EXD, DW, DR, and every saved assignment stay as they are.
 - EXD remains an ALE duty seat. DW and DR remain fixed-frequency / net seats.
 - Channel names start blank. You can add a four-character channel later if you want one.
-- Scheduling stays as it is today until you change it: every seat is daily, back-to-back is Avoid, and the week starts on Monday. That is true even if the old No back-to-back checkbox was unchecked.
-- The first time the new version saves, it keeps a copy of the older data file in the backups folder (or in browser storage under the pre-migration key).
+- Scheduling stays as it is today until you change it: every seat is daily, back-to-back is Avoid, the week starts on Monday, the monthly maximum is 5, and the daily rolling-week maximum is 2. That is true even if the old No back-to-back checkbox was unchecked or the old shift boxes had been changed.
+- The first time the new version saves, it keeps a permanent copy of the older data named `premigration-v1.json` in the backups folder. Later saves do not delete that file. The rotating folder still keeps only the last 5 ordinary backups. A browser copy stays under the pre-migration key.
 
 Two new choices are stored with the schedule, in Global Settings and in first-run setup:
 

@@ -14,6 +14,8 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   setupComplete: true,
   backToBackPolicy: 'avoid',
   weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
   operators: [],
   positions: defaultPositions,
   vacations: {},

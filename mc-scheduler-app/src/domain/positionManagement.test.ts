@@ -8,6 +8,8 @@ const schedulerData = (overrides: Partial<SchedulerData> = {}): SchedulerData =>
   setupComplete: true,
   backToBackPolicy: 'avoid',
   weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
   operators: [
     {
       callsign: 'ALPHA',
@@ -78,6 +80,38 @@ describe('position management', () => {
     })
 
     expect(result.errors).toEqual(['Channel name must be exactly 4 letters or numbers, such as AB12.'])
+    expect(result.data).toBe(data)
+  })
+
+  it('removes the ALE requirement when a seat becomes a normal net', () => {
+    const data = schedulerData({
+      operators: [{
+        callsign: 'BRAVO',
+        ale: false,
+        unavailable: [],
+        positionPermissions: { EXD: false, DW: true, DR: true },
+      }],
+    })
+
+    const result = editPosition(data, {
+      positionCode: 'EXD',
+      updates: { type: 'fixed' },
+    })
+
+    expect(result.errors).toEqual([])
+    expect(result.data.positions.find((position) => position.name === 'EXD')?.type).toBe('fixed')
+    expect(result.data.operators[0].positionPermissions.EXD).toBe(true)
+  })
+
+  it('rejects a position code with spaces or punctuation', () => {
+    const data = schedulerData()
+    const result = editPosition(data, {
+      positionCode: 'DW',
+      updates: { name: 'D W' },
+      options: { allowCodeOrNameChange: true },
+    })
+
+    expect(result.errors).toEqual(['Position code must use only letters, numbers, or hyphens, up to 12 characters.'])
     expect(result.data).toBe(data)
   })
 

@@ -9,6 +9,8 @@ const baseData: SchedulerData = {
   setupComplete: true,
   backToBackPolicy: 'avoid',
   weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
   operators: [
     {
       callsign: 'ALPHA',
@@ -99,5 +101,28 @@ describe('month tools', () => {
     expect(parsed.positions.find((position) => position.name === 'EXD')?.assignmentPeriod).toBe('weekly')
     expect(parsed.schedule['2026-05-01']).toBeUndefined()
     expect(parsed.schedule['2026-04-01'].assignments.EXD).toBe('ALPHA')
+  })
+
+  it('clears weekly days in the neighboring month and leaves daily seats there', () => {
+    const weekly = {
+      ...baseData,
+      positions: baseData.positions.map((position) => (
+        position.name === 'EXD' ? { ...position, assignmentPeriod: 'weekly' as const } : position
+      )),
+      schedule: {
+        ...baseData.schedule,
+        '2026-03-30': { coverage: true, assignments: { EXD: 'ALPHA', DW: 'BRAVO' } },
+        '2026-03-31': { coverage: true, assignments: { EXD: 'ALPHA' } },
+        '2026-05-04': { coverage: true, assignments: { EXD: 'ALPHA', DW: 'CHARLIE' } },
+      },
+    }
+
+    const cleared = clearAssignmentsForMonth(weekly, '2026-04')
+
+    expect(cleared.schedule['2026-04-01'].assignments).toEqual({})
+    expect(cleared.schedule['2026-03-30'].assignments).toEqual({ DW: 'BRAVO' })
+    expect(cleared.schedule['2026-03-31'].assignments).toEqual({})
+    expect(cleared.schedule['2026-05-01'].assignments.EXD).toBeUndefined()
+    expect(cleared.schedule['2026-05-04'].assignments).toEqual({ EXD: 'ALPHA', DW: 'CHARLIE' })
   })
 })

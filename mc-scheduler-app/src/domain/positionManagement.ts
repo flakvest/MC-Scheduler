@@ -1,3 +1,4 @@
+import { normalizePositionCode } from './regionSetup'
 import { normalizeChannel } from './schedulerMigration'
 import { isAleDuty, type Position, type PositionCode, type PositionType, type SchedulerData } from './schedulerTypes'
 
@@ -31,7 +32,12 @@ export function editPosition(data: SchedulerData, input: EditPositionInput): Pos
   if (positionIndex === -1) return withError(data, 'Position does not exist.')
 
   const currentPosition = data.positions[positionIndex]
-  const nextName = updates.name ?? currentPosition.name
+  let nextName = currentPosition.name
+  if (updates.name !== undefined) {
+    const codeResult = normalizePositionCode(updates.name)
+    if (codeResult.error) return withError(data, codeResult.error)
+    nextName = codeResult.code
+  }
   const nextType: PositionType = updates.type ?? currentPosition.type
   const nextDisplayName = updates.displayName?.trim() || currentPosition.displayName || nextName
   const nextSortOrder = updates.sortOrder ?? currentPosition.sortOrder
@@ -91,12 +97,12 @@ export function editPosition(data: SchedulerData, input: EditPositionInput): Pos
     })
   }
 
-  if (nextType === 'ale') {
+  if (nextType === 'ale' || (currentPosition.type === 'ale' && nextType === 'fixed')) {
     nextData.operators = nextData.operators.map((operator) => ({
       ...operator,
       positionPermissions: {
         ...operator.positionPermissions,
-        [nextName]: operator.ale,
+        [nextName]: nextType === 'ale' ? operator.ale : true,
       },
     }))
   }

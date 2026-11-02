@@ -1,3 +1,4 @@
+import { clearWeeklyHoldsTouchingMonth } from './schedulerRules'
 import type { IsoDate, Schedule, SchedulerData } from './schedulerTypes'
 
 const isIsoDateInMonth = (isoDate: IsoDate, month: string): boolean => isoDate.startsWith(`${month}-`)
@@ -33,10 +34,10 @@ const pickScheduleMonth = (schedule: Schedule, month: string): Schedule => {
 }
 
 export function clearAssignmentsForMonth(data: SchedulerData, month: string): SchedulerData {
-  return {
+  return clearWeeklyHoldsTouchingMonth({
     ...data,
     schedule: cloneScheduleWithClearedMonthAssignments(data.schedule, month),
-  }
+  }, month)
 }
 
 export function monthHasAssignments(data: SchedulerData, month: string): boolean {

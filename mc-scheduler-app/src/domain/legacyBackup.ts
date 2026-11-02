@@ -71,7 +71,7 @@ const normalizeOperators = (value: unknown, positions: Position[]): Operator[] =
 
       if (!callsign) return null
 
-      const ale = legacy.ale === true || legacy.canBIGTOPDELTA === true
+      const ale = legacy.ale === true || legacy.canBIGTOPDELTA === true || legacy.canEXD === true
       const positionPermissions = positions.reduce<Record<string, boolean>>((permissions, position) => {
         const legacyKey = `can${position.name}`
         permissions[position.name] = position.type === 'ale' ? ale : legacy[legacyKey] !== false
@@ -140,6 +140,8 @@ export function importLegacyBackup(backup: LegacyBackupData): SchedulerData {
     setupComplete: true,
     backToBackPolicy: 'avoid',
     weekStartsOn: 1,
+    maxShiftsPerMonth: 5,
+    maxShiftsPerWeek: 2,
     operators: normalizeOperators(backup.operators, positions),
     positions,
     vacations: normalizeVacations(backup.vacations),

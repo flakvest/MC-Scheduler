@@ -12,12 +12,50 @@ import { UpdateDialog } from './UpdateDialog'
 import { clearAssignmentsForMonth, createMonthSnapshot, monthHasAssignments } from './domain/monthTools'
 import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
-import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
+import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, operatorsReplacedByWeeklyAssign, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
 import { getAppVersion, getSchedulerStorageInfo, loadSchedulerData, openSchedulerDataFolder, saveSchedulerData, type SchedulerStorageInfo } from './domain/schedulerStorage'
 import { applyHolidaysToData, fetchFederalHolidays, generateFederalHolidays, holidayForDate, normalizeHolidayName, uniqueHolidays } from './domain/holidayRules'
 import { normalizeChannel } from './domain/schedulerMigration'
-import { emptySchedulerData, region4ExamplePositions, sortedPositions, type Holiday, type PositionType, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
+import { finishSetupBlocker, loadRegion4ExampleData, normalizePositionCode } from './domain/regionSetup'
+import { emptySchedulerData, MAX_SHIFTS_PER_MONTH_CAP, MAX_SHIFTS_PER_WEEK_CAP, sortedPositions, type Holiday, type PositionType, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
+
+function shiftLimitChoices(maximum: number) {
+  return Array.from({ length: maximum + 1 }, (_, value) => value)
+}
+
+function ShiftLimitFields({
+  month,
+  week,
+  onMonth,
+  onWeek,
+}: {
+  month: number
+  week: number
+  onMonth: (value: number) => void
+  onWeek: (value: number) => void
+}) {
+  return (
+    <>
+      <label>
+        Max shifts/month
+        <select value={month} onChange={(event) => onMonth(Number(event.target.value))}>
+          {shiftLimitChoices(MAX_SHIFTS_PER_MONTH_CAP).map((value) => (
+            <option value={value} key={value}>{value === 0 ? 'No limit' : value}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Max daily shifts/week
+        <select value={week} onChange={(event) => onWeek(Number(event.target.value))}>
+          {shiftLimitChoices(MAX_SHIFTS_PER_WEEK_CAP).map((value) => (
+            <option value={value} key={value}>{value === 0 ? 'No limit' : value}</option>
+          ))}
+        </select>
+      </label>
+    </>
+  )
+}
 
 const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Sun', value: 0 },
@@ -105,6 +143,7 @@ function App() {
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
+  const finishSetupRef = useRef<HTMLParagraphElement>(null)
   const skipNextSaveRef = useRef(true)
 
   const scheduleData = useMemo(() => ({
@@ -218,14 +257,16 @@ function App() {
     setMonth(next.getMonth() + 1)
   }
 
+  const schedulingOptions = {
+    year,
+    month,
+    maxShifts: data.maxShiftsPerMonth,
+    preventBackToBack: data.backToBackPolicy !== 'allow',
+    maxShiftsPerWeek: data.maxShiftsPerWeek,
+  }
+
   const runSmartAssign = () => {
-    const options = {
-      year,
-      month,
-      maxShifts: smartAssignSettings.maxShiftsPerMonth,
-      preventBackToBack: data.backToBackPolicy !== 'allow',
-      maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
-    }
+    const options = schedulingOptions
     const result = smartAssign(scheduleData, {
       ...options,
     })
@@ -236,13 +277,7 @@ function App() {
   }
 
   const refreshAssignmentIssues = () => {
-    const issues = findOpenAssignmentIssues(scheduleData, {
-      year,
-      month,
-      maxShifts: smartAssignSettings.maxShiftsPerMonth,
-      preventBackToBack: data.backToBackPolicy !== 'allow',
-      maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
-    })
+    const issues = findOpenAssignmentIssues(scheduleData, schedulingOptions)
 
     setAssignmentIssues(issues)
     setStatusMessage(issues.length === 0 ? 'No open assignment issues found.' : `${issues.length} open assignment issues found.`)
@@ -342,6 +377,7 @@ function App() {
       ...current,
       operators: current.operators.map((operator) => operator.callsign === editingOperatorCallsign
         ? {
+            ...operator,
             callsign,
             ale: newOperatorAle,
             unavailable: [...newOperatorUnavailable].sort(),
@@ -412,10 +448,11 @@ function App() {
   }
 
   const addPosition = () => {
-    const positionCode = newPositionCode.trim().toUpperCase()
+    const codeResult = normalizePositionCode(newPositionCode)
+    const positionCode = codeResult.code
 
-    if (!positionCode) {
-      setStatusMessage('Enter a position code before adding a position.')
+    if (codeResult.error) {
+      setStatusMessage(codeResult.error)
       return
     }
 
@@ -466,32 +503,37 @@ function App() {
     setStatusMessage(`${positionCode} position added.`)
   }
 
-  const loadRegion4Example = () => {
-    setData((current) => ({
-      ...current,
-      positions: region4ExamplePositions(),
-      operators: current.operators.map((operator) => ({
-        ...operator,
-        positionPermissions: {
-          EXD: operator.ale,
-          DW: true,
-          DR: true,
-        },
-      })),
-    }))
+  const applyRegion4Example = () => {
+    setData((current) => loadRegion4ExampleData(current))
     setStatusMessage('Loaded the Region 4 example: EXD, DeltaWhite, and DeltaRed.')
   }
 
-  const finishRegionSetup = () => {
+  const loadRegion4Example = () => {
     if (data.positions.length === 0) {
-      setStatusMessage('Add at least one position, or load the Region 4 example.')
+      applyRegion4Example()
+      return
+    }
+
+    setConfirmAction({
+      title: 'Replace the current positions?',
+      message: 'Load Region 4 example replaces the position list with EXD, DeltaWhite, and DeltaRed. Assignments for any other seat are removed so they cannot keep a person from taking a seat that day.',
+      confirmLabel: 'Load Example',
+      onConfirm: applyRegion4Example,
+    })
+  }
+
+  const finishRegionSetup = () => {
+    const blocker = finishSetupBlocker(data)
+    if (blocker) {
+      window.setTimeout(() => {
+        finishSetupRef.current?.scrollIntoView({ block: 'center' })
+        finishSetupRef.current?.focus()
+      }, 0)
       return
     }
 
     setData((current) => ({ ...current, setupComplete: true }))
-    setStatusMessage(data.regionName.trim()
-      ? `${data.regionName.trim()} is ready to schedule.`
-      : 'Region setup finished. You can add a region name later in Global Settings.')
+    setStatusMessage(`${data.regionName.trim()} is ready to schedule.`)
   }
 
   const resetPositionForm = () => {
@@ -520,10 +562,13 @@ function App() {
   const savePositionEdit = () => {
     if (!editingPositionCode) return
 
-    const positionCode = newPositionCode.trim().toUpperCase()
+    const codeResult = normalizePositionCode(newPositionCode)
+    const positionCode = codeResult.code
 
-    if (!positionCode) {
-      setStatusMessage('Enter a position code before saving the position.')
+    if (codeResult.error) {
+      setStatusMessage(codeResult.error === 'Enter a position code.'
+        ? 'Enter a position code before saving the position.'
+        : codeResult.error)
       return
     }
 
@@ -606,7 +651,19 @@ function App() {
     })
   }
 
+  const describeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
+    const weekly = scheduleData.positions.find((position) => position.name === positionCode)?.assignmentPeriod === 'weekly'
+    return callsign
+      ? weekly
+        ? `${callsign} assigned to ${positionCode} for every coverage day that week.`
+        : `${callsign} assigned to ${positionCode} on ${dateStr}.`
+      : weekly
+        ? `${positionCode} cleared for every coverage day that week.`
+        : `${positionCode} cleared on ${dateStr}.`
+  }
+
   const changeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
+    const replaced = operatorsReplacedByWeeklyAssign(scheduleData, dateStr, positionCode, callsign)
     const result = assignOperator(scheduleData, dateStr, positionCode, callsign)
 
     if (!result.check.allowed) {
@@ -614,15 +671,23 @@ function App() {
       return
     }
 
-    setData(result.data)
-    const weekly = scheduleData.positions.find((position) => position.name === positionCode)?.assignmentPeriod === 'weekly'
-    setStatusMessage(callsign
-      ? weekly
-        ? `${callsign} assigned to ${positionCode} for every coverage day that week.`
-        : `${callsign} assigned to ${positionCode} on ${dateStr}.`
-      : weekly
-        ? `${positionCode} cleared for every coverage day that week.`
-        : `${positionCode} cleared on ${dateStr}.`)
+    const apply = () => {
+      setData(result.data)
+      setStatusMessage(describeAssignment(dateStr, positionCode, callsign))
+    }
+
+    if (replaced.length === 0) {
+      apply()
+      return
+    }
+
+    const names = replaced.join(' and ')
+    setConfirmAction({
+      title: `Replace ${names}?`,
+      message: `${names} already ${replaced.length === 1 ? 'holds' : 'hold'} ${positionCode} on coverage days this week, including any days in a neighboring month. Assigning ${callsign} replaces them for the whole week.`,
+      confirmLabel: 'Replace',
+      onConfirm: apply,
+    })
   }
 
   const changeCoverage = (dateStr: string, coverage: boolean) => {
@@ -644,7 +709,7 @@ function App() {
   const confirmClearCalendarAssignments = () => {
     setConfirmAction({
       title: `Clear ${monthName(year, month)} ${year}?`,
-      message: 'This will remove all assignments for the selected month. Coverage settings and other months will remain.',
+      message: 'This removes every assignment in the selected month. A weekly seat also clears the rest of any week that crosses into the neighboring month. Daily seats in other months stay.',
       confirmLabel: 'Clear Assignments',
       onConfirm: clearCalendarAssignmentsNow,
     })
@@ -1165,20 +1230,110 @@ function App() {
                 ))}
               </select>
             </label>
+            <ShiftLimitFields
+              month={data.maxShiftsPerMonth}
+              week={data.maxShiftsPerWeek}
+              onMonth={(value) => setData((current) => ({ ...current, maxShiftsPerMonth: value }))}
+              onWeek={(value) => setData((current) => ({ ...current, maxShiftsPerWeek: value }))}
+            />
+            <form
+              className="operator-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (editingPositionCode) savePositionEdit()
+                else addPosition()
+              }}
+            >
+              <label>
+                Code
+                <input
+                  type="text"
+                  maxLength={12}
+                  value={newPositionCode}
+                  onChange={(event) => setNewPositionCode(event.target.value.toUpperCase())}
+                  placeholder="DW"
+                />
+              </label>
+              <label>
+                Name
+                <input
+                  type="text"
+                  value={newPositionDisplayName}
+                  onChange={(event) => setNewPositionDisplayName(event.target.value)}
+                  placeholder="DeltaWhite"
+                />
+              </label>
+              <label>
+                Type
+                <select value={newPositionType} onChange={(event) => setNewPositionType(event.target.value as PositionType)}>
+                  <option value="fixed">Fixed-frequency / net</option>
+                  <option value="ale">ALE duty</option>
+                </select>
+              </label>
+              <label>
+                Assignment
+                <select
+                  value={newPositionPeriod}
+                  onChange={(event) => setNewPositionPeriod(event.target.value === 'weekly' ? 'weekly' : 'daily')}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </label>
+              <label>
+                Channel name (optional)
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={newPositionChannel}
+                  onChange={(event) => setNewPositionChannel(event.target.value.toUpperCase())}
+                  placeholder="AB12"
+                />
+              </label>
+              <label>
+                Sort order
+                <input
+                  type="number"
+                  value={newPositionSort}
+                  onChange={(event) => setNewPositionSort(event.target.value)}
+                  placeholder="1"
+                />
+              </label>
+              <div className="form-actions">
+                <button type="submit" className="primary">{editingPositionCode ? 'Save Position' : 'Add Position'}</button>
+                {editingPositionCode ? <button type="button" onClick={resetPositionForm}>Cancel Edit</button> : null}
+              </div>
+            </form>
+            {data.positions.length === 0 ? <p>No positions yet.</p> : (
+              <div className="table-list">
+                {sortedPositions(data.positions).map((position) => (
+                  <div className="table-row" key={position.name}>
+                    <strong>{position.name}</strong>
+                    <span>{position.displayName}{position.channel ? ` · ${position.channel}` : ''}</span>
+                    <span>{position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}</span>
+                    <span>{position.assignmentPeriod === 'weekly' ? 'Weekly' : 'Daily'}</span>
+                    <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
+                    <button type="button" className="danger" onClick={() => confirmRemovePosition(position.name)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="form-actions">
               <button type="button" onClick={loadRegion4Example}>Load Region 4 example</button>
-              <button type="button" className="primary" onClick={finishRegionSetup}>Finish setup</button>
+              <button
+                type="button"
+                className="primary"
+                aria-disabled={finishSetupBlocker(data) !== null}
+                onClick={finishRegionSetup}
+              >
+                Finish setup
+              </button>
             </div>
-            {data.positions.length === 0 ? <p>No positions yet.</p> : (
-              <ul>
-                {sortedPositions(data.positions).map((position) => (
-                  <li key={position.name}>
-                    {position.name}: {position.displayName} ({position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}, {position.assignmentPeriod === 'weekly' ? 'weekly' : 'daily'}{position.channel ? `, channel ${position.channel}` : ''})
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p>Use Positions in the admin menu to add a seat with a code, name, type, daily or weekly assignment, optional channel, and sort order. Avoid back-to-back is the default. Weekly seats cover every coverage day in the week.</p>
+            {finishSetupBlocker(data) ? (
+              <p className="setup-error" role="alert" tabIndex={-1} ref={finishSetupRef}>
+                {finishSetupBlocker(data)}
+              </p>
+            ) : null}
           </section>
         )}
 
@@ -1203,20 +1358,12 @@ function App() {
               placeholder="Army MARS Region 4"
             />
           </label>
-          <label>
-            Max shifts/month
-            <select
-              value={smartAssignSettings.maxShiftsPerMonth}
-              onChange={(event) => setSmartAssignSettings((current) => ({
-                ...current,
-                maxShiftsPerMonth: Number(event.target.value),
-              }))}
-            >
-              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                <option value={value} key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
+          <ShiftLimitFields
+            month={data.maxShiftsPerMonth}
+            week={data.maxShiftsPerWeek}
+            onMonth={(value) => setData((current) => ({ ...current, maxShiftsPerMonth: value }))}
+            onWeek={(value) => setData((current) => ({ ...current, maxShiftsPerWeek: value }))}
+          />
           <label>
             Back-to-back
             <select
@@ -1244,21 +1391,7 @@ function App() {
               ))}
             </select>
           </label>
-          <label>
-            Max shifts/week
-            <select
-              value={smartAssignSettings.maxShiftsPerWeek}
-              onChange={(event) => setSmartAssignSettings((current) => ({
-                ...current,
-                maxShiftsPerWeek: Number(event.target.value),
-              }))}
-            >
-              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                <option value={value} key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <p className="settings-note">Avoid back-to-back is the default. Smart Assign and Check Issues use it. One person still holds only one seat per day. Set each position to Daily or Weekly under Positions.</p>
+          <p className="settings-note">Avoid back-to-back is the default. One person still holds only one seat per day. Each coverage day of a weekly seat counts toward the monthly maximum. No limit is 0. A weekly seat does not use the daily rolling-week maximum.</p>
         </section>
 
         {assignmentIssues.length > 0 ? (
@@ -1339,7 +1472,7 @@ function App() {
                             ))}
                         </select>
                         <p className="print-only print-assignment-text">
-                          {position.shortName}: {scheduleDay.assignments[position.name] || 'Open'}
+                          {position.shortName}{position.channel ? ` ${position.channel}` : ''}: {scheduleDay.assignments[position.name] || 'Open'}
                         </p>
                       </div>
                     )) : null}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { finishSetupBlocker, loadRegion4ExampleData, normalizePositionCode } from './regionSetup'
+import { finishSetupBlocker, loadRegion4ExampleData, normalizePositionCode, parseOperatorShiftLimit } from './regionSetup'
 import { emptySchedulerData, region4ExamplePositions, type SchedulerData } from './schedulerTypes'
 
 const data = (overrides: Partial<SchedulerData> = {}): SchedulerData => ({
@@ -23,6 +23,17 @@ describe('finish setup validation', () => {
     expect(normalizePositionCode(' dw-1 ')).toEqual({ code: 'DW-1' })
     expect(normalizePositionCode('DW:1').error).toBe('Position code must use only letters, numbers, or hyphens, up to 12 characters.')
     expect(normalizePositionCode('NET ONE').error).toBe('Position code must use only letters, numbers, or hyphens, up to 12 characters.')
+  })
+})
+
+describe('operator shift limits', () => {
+  it('treats a blank field as the region default and 0 as no limit', () => {
+    expect(parseOperatorShiftLimit('', 31, 'Max shifts per month')).toEqual({})
+    expect(parseOperatorShiftLimit('  ', 31, 'Max shifts per month')).toEqual({})
+    expect(parseOperatorShiftLimit('0', 31, 'Max shifts per month')).toEqual({ limit: 0 })
+    expect(parseOperatorShiftLimit('5', 31, 'Max shifts per month')).toEqual({ limit: 5 })
+    expect(parseOperatorShiftLimit('32', 31, 'Max shifts per month').error).toBe('Max shifts per month must be a whole number from 0 to 31, or blank.')
+    expect(parseOperatorShiftLimit('1.5', 14, 'Max daily shifts per rolling week').error).toBe('Max daily shifts per rolling week must be a whole number from 0 to 14, or blank.')
   })
 })
 

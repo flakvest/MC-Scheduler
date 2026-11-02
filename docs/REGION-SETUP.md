@@ -46,13 +46,15 @@ A weekly seat can cross a month boundary. Smart Assign and a hand pick write tho
 
 Choosing a person for a weekly seat that someone else already holds, including on a day in the other month, asks first and names who would be replaced.
 
+Hand-picking a seat asks before it puts someone over a shift limit, and the message names that limit. Smart Assign and Check Issues still leave the seat open instead of going over the limit.
+
 Changing the week start, or switching a filled seat from Daily to Weekly, keeps the assignments already on the calendar. If one week then has more than one person, Smart Assign fills the open days with whoever already has the most coverage days that week, when that person is eligible. A tie stays open, and Check Issues says the week is split.
 
 With **Avoid back-to-back**, a weekly seat also stays off the previous week and the next week when that operator already works either week, on any seat. **Allow back-to-back** turns that off.
 
 The text schedule and the printed calendar still list one line per day. A channel, when one is set, is printed beside the position code. A weekly seat shows the same operator on each of that week's coverage days.
 
-An operator record may include its own `maxShiftsPerMonth` or `maxShiftsPerWeek`. Those replace the region numbers for that person. `0` means no limit there too. Editing the operator in the app keeps those overrides.
+On the Operators screen, **Max shifts per month** and **Max daily shifts per rolling week** are optional. Leave a box blank to use the region default, which is shown as the placeholder. Enter 0 for no limit for that person. Those values are that person's own limits and replace the region numbers. Smart Assign uses them. A hand pick asks first instead of refusing.
 
 ## Channel name
 

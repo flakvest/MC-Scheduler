@@ -12,11 +12,11 @@ import { UpdateDialog } from './UpdateDialog'
 import { clearAssignmentsForMonth, createMonthSnapshot, monthHasAssignments } from './domain/monthTools'
 import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
-import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, operatorsReplacedByWeeklyAssign, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
+import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, handPickShiftLimitWarnings, operatorsReplacedByWeeklyAssign, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
 import { getAppVersion, getSchedulerStorageInfo, loadSchedulerData, openSchedulerDataFolder, saveSchedulerData, type SchedulerStorageInfo } from './domain/schedulerStorage'
 import { applyHolidaysToData, fetchFederalHolidays, generateFederalHolidays, holidayForDate, normalizeHolidayName, uniqueHolidays } from './domain/holidayRules'
 import { normalizeChannel } from './domain/schedulerMigration'
-import { finishSetupBlocker, loadRegion4ExampleData, normalizePositionCode } from './domain/regionSetup'
+import { finishSetupBlocker, loadRegion4ExampleData, normalizePositionCode, parseOperatorShiftLimit } from './domain/regionSetup'
 import { emptySchedulerData, MAX_SHIFTS_PER_MONTH_CAP, MAX_SHIFTS_PER_WEEK_CAP, sortedPositions, type Holiday, type PositionType, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
 
@@ -125,6 +125,8 @@ function App() {
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
+  const [newOperatorMonthLimit, setNewOperatorMonthLimit] = useState('')
+  const [newOperatorWeekLimit, setNewOperatorWeekLimit] = useState('')
   const [editingOperatorCallsign, setEditingOperatorCallsign] = useState<string | null>(null)
   const [newPositionCode, setNewPositionCode] = useState('')
   const [newPositionDisplayName, setNewPositionDisplayName] = useState('')
@@ -301,7 +303,22 @@ function App() {
     setNewOperatorAle(false)
     setNewOperatorUnavailable([])
     setNewOperatorPermissions({})
+    setNewOperatorMonthLimit('')
+    setNewOperatorWeekLimit('')
     setEditingOperatorCallsign(null)
+  }
+
+  const operatorLimitFields = () => {
+    const month = parseOperatorShiftLimit(newOperatorMonthLimit, MAX_SHIFTS_PER_MONTH_CAP, 'Max shifts per month')
+    const week = parseOperatorShiftLimit(newOperatorWeekLimit, MAX_SHIFTS_PER_WEEK_CAP, 'Max daily shifts per rolling week')
+    if (month.error) return { error: month.error }
+    if (week.error) return { error: week.error }
+    return {
+      limits: {
+        ...(month.limit === undefined ? {} : { maxShiftsPerMonth: month.limit }),
+        ...(week.limit === undefined ? {} : { maxShiftsPerWeek: week.limit }),
+      },
+    }
   }
 
   const startEditOperator = (callsign: string) => {
@@ -313,6 +330,8 @@ function App() {
     setNewOperatorAle(operator.ale)
     setNewOperatorUnavailable(operator.unavailable)
     setNewOperatorPermissions(operator.positionPermissions)
+    setNewOperatorMonthLimit(operator.maxShiftsPerMonth === undefined ? '' : String(operator.maxShiftsPerMonth))
+    setNewOperatorWeekLimit(operator.maxShiftsPerWeek === undefined ? '' : String(operator.maxShiftsPerWeek))
   }
 
   const addOperator = () => {
@@ -325,6 +344,12 @@ function App() {
 
     if (data.operators.some((operator) => operator.callsign === callsign)) {
       setStatusMessage(`${callsign} already exists.`)
+      return
+    }
+
+    const parsedLimits = operatorLimitFields()
+    if (parsedLimits.error) {
+      setStatusMessage(parsedLimits.error)
       return
     }
 
@@ -344,6 +369,7 @@ function App() {
           ale: newOperatorAle,
           unavailable: [...newOperatorUnavailable].sort(),
           positionPermissions,
+          ...parsedLimits.limits,
         },
       ],
     }))
@@ -366,6 +392,12 @@ function App() {
       return
     }
 
+    const parsedLimits = operatorLimitFields()
+    if (parsedLimits.error) {
+      setStatusMessage(parsedLimits.error)
+      return
+    }
+
     const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
       permissions[position.name] = position.type === 'ale'
         ? newOperatorAle
@@ -377,11 +409,11 @@ function App() {
       ...current,
       operators: current.operators.map((operator) => operator.callsign === editingOperatorCallsign
         ? {
-            ...operator,
             callsign,
             ale: newOperatorAle,
             unavailable: [...newOperatorUnavailable].sort(),
             positionPermissions,
+            ...parsedLimits.limits,
           }
         : operator),
       schedule: Object.entries(current.schedule).reduce<SchedulerData['schedule']>((schedule, [date, day]) => {
@@ -664,6 +696,7 @@ function App() {
 
   const changeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
     const replaced = operatorsReplacedByWeeklyAssign(scheduleData, dateStr, positionCode, callsign)
+    const limitWarnings = handPickShiftLimitWarnings(scheduleData, dateStr, positionCode, callsign)
     const result = assignOperator(scheduleData, dateStr, positionCode, callsign)
 
     if (!result.check.allowed) {
@@ -676,16 +709,19 @@ function App() {
       setStatusMessage(describeAssignment(dateStr, positionCode, callsign))
     }
 
-    if (replaced.length === 0) {
+    if (replaced.length === 0 && limitWarnings.length === 0) {
       apply()
       return
     }
 
     const names = replaced.join(' and ')
+    const replacement = replaced.length === 0
+      ? ''
+      : `${names} already ${replaced.length === 1 ? 'holds' : 'hold'} ${positionCode} on coverage days this week, including any days in a neighboring month. Assigning ${callsign} replaces them for the whole week.`
     setConfirmAction({
-      title: `Replace ${names}?`,
-      message: `${names} already ${replaced.length === 1 ? 'holds' : 'hold'} ${positionCode} on coverage days this week, including any days in a neighboring month. Assigning ${callsign} replaces them for the whole week.`,
-      confirmLabel: 'Replace',
+      title: limitWarnings.length > 0 ? `Assign ${callsign} anyway?` : `Replace ${names}?`,
+      message: [replacement, ...limitWarnings].filter(Boolean).join(' '),
+      confirmLabel: 'Assign anyway',
       onConfirm: apply,
     })
   }
@@ -1566,6 +1602,30 @@ function App() {
                   </div>
                 </fieldset>
 
+                <label>
+                  Max shifts per month
+                  <input
+                    type="number"
+                    min={0}
+                    max={MAX_SHIFTS_PER_MONTH_CAP}
+                    value={newOperatorMonthLimit}
+                    onChange={(event) => setNewOperatorMonthLimit(event.target.value)}
+                    placeholder={data.maxShiftsPerMonth === 0 ? 'No limit' : String(data.maxShiftsPerMonth)}
+                  />
+                </label>
+                <label>
+                  Max daily shifts per rolling week
+                  <input
+                    type="number"
+                    min={0}
+                    max={MAX_SHIFTS_PER_WEEK_CAP}
+                    value={newOperatorWeekLimit}
+                    onChange={(event) => setNewOperatorWeekLimit(event.target.value)}
+                    placeholder={data.maxShiftsPerWeek === 0 ? 'No limit' : String(data.maxShiftsPerWeek)}
+                  />
+                </label>
+                <p className="settings-note">Leave a limit blank to use the region default shown in the box. Enter 0 for no limit.</p>
+
                 <div className="form-actions">
                   <button type="submit" className="primary">{editingOperatorCallsign ? 'Save Operator' : 'Add Operator'}</button>
                   {editingOperatorCallsign ? <button type="button" onClick={resetOperatorForm}>Cancel Edit</button> : null}
@@ -1579,6 +1639,11 @@ function App() {
                     <strong>{operator.callsign}</strong>
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
                     <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
+                    <span>
+                      {operator.maxShiftsPerMonth === undefined ? 'Region month' : operator.maxShiftsPerMonth === 0 ? 'No monthly limit' : `${operator.maxShiftsPerMonth}/month`}
+                      {' · '}
+                      {operator.maxShiftsPerWeek === undefined ? 'Region week' : operator.maxShiftsPerWeek === 0 ? 'No weekly limit' : `${operator.maxShiftsPerWeek}/week`}
+                    </span>
                     <button type="button" onClick={() => startEditOperator(operator.callsign)}>Edit</button>
                     <button type="button" className="danger" onClick={() => confirmDeleteOperator(operator.callsign)}>Delete</button>
                   </div>

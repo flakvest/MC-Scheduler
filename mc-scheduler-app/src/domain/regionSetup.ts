@@ -2,6 +2,15 @@ import { region4ExamplePositions, type SchedulerData } from './schedulerTypes'
 
 export const POSITION_CODE_HELP = 'Position code must use only letters, numbers, or hyphens, up to 12 characters.'
 
+export function parseOperatorShiftLimit(value: string, cap: number, label: string): { limit?: number, error?: string } {
+  const trimmed = value.trim()
+  if (!trimmed) return {}
+  if (!/^\d+$/.test(trimmed) || Number(trimmed) > cap) {
+    return { error: `${label} must be a whole number from 0 to ${cap}, or blank.` }
+  }
+  return { limit: Number(trimmed) }
+}
+
 export function normalizePositionCode(value: string): { code: string, error?: string } {
   const code = value.trim().toUpperCase()
   if (!code) return { code: '', error: 'Enter a position code.' }

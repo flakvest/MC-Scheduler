@@ -152,6 +152,50 @@ export function operatorsReplacedByWeeklyAssign(
   return [...replaced]
 }
 
+export function handPickShiftLimitWarnings(
+  data: SchedulerData,
+  dateStr: IsoDate,
+  positionCode: PositionCode,
+  callsign: Callsign,
+): string[] {
+  if (!callsign) return []
+
+  const position = data.positions.find((item) => item.name === positionCode)
+  const operator = getOperator(data.operators, callsign)
+  if (!position || !operator) return []
+
+  const datesToAdd = position.assignmentPeriod === 'weekly'
+    ? coverageDatesInWeek(data, dateStr, false).filter((date) => data.schedule[date]?.assignments[position.name] !== callsign)
+    : data.schedule[dateStr]?.assignments[position.name] === callsign ? [] : [dateStr]
+  if (datesToAdd.length === 0) return []
+
+  const warnings: string[] = []
+  const monthLimit = shiftLimitFor(operator.maxShiftsPerMonth, data.maxShiftsPerMonth)
+  const overMonth = [...new Set(datesToAdd.map((date) => date.slice(0, 7)))].some((prefix) => {
+    const extra = datesToAdd.filter((date) => date.startsWith(prefix)).length
+    return getShiftCount(data.schedule, data.positions, callsign, prefix) + extra > monthLimit
+  })
+  if (overMonth) {
+    const whose = typeof operator.maxShiftsPerMonth === 'number'
+      ? 'their monthly limit'
+      : 'the region monthly limit'
+    warnings.push(`${callsign} would go over ${whose} of ${monthLimit}.`)
+  }
+
+  if (position.assignmentPeriod !== 'weekly') {
+    const weekLimit = shiftLimitFor(operator.maxShiftsPerWeek, data.maxShiftsPerWeek)
+    const projected = getWeeklyShiftCount(data.schedule, data.positions, callsign, dateStr) + (workedOnDate(data.schedule, data.positions, callsign, dateStr) ? 0 : 1)
+    if (projected > weekLimit) {
+      const whose = typeof operator.maxShiftsPerWeek === 'number'
+        ? 'their daily rolling-week limit'
+        : 'the region daily rolling-week limit'
+      warnings.push(`${callsign} would go over ${whose} of ${weekLimit}.`)
+    }
+  }
+
+  return warnings
+}
+
 export function clearWeeklyHoldsTouchingMonth(data: SchedulerData, month: string): SchedulerData {
   const weekly = data.positions.filter((position) => position.assignmentPeriod === 'weekly')
   if (weekly.length === 0) return data

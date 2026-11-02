@@ -15,6 +15,7 @@ import {
   getShiftCount,
   getWeeklyShiftCount,
   isOperatorAvailable,
+  handPickShiftLimitWarnings,
   operatorsReplacedByWeeklyAssign,
   setCoverage,
   smartAssign,
@@ -813,6 +814,53 @@ describe('region shift limits', () => {
     expect(open.data.schedule['2026-04-01'].assignments.DW).toBe('ALPHA')
     expect(open.data.schedule['2026-04-10'].assignments.DW).toBe('ALPHA')
     expect(open.assignedCount).toBeGreaterThan(5)
+  })
+
+  it('warns about a hand pick that would pass a monthly or rolling-week limit, and still allows it', () => {
+    const monthData = schedulerData({
+      positions: [dwPosition],
+      maxShiftsPerMonth: 1,
+      maxShiftsPerWeek: 0,
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+        '2026-04-03': { coverage: true, assignments: {} },
+      },
+    })
+
+    expect(handPickShiftLimitWarnings(monthData, '2026-04-03', 'DW', 'ALPHA')).toEqual([
+      'ALPHA would go over the region monthly limit of 1.',
+    ])
+    expect(assignOperator(monthData, '2026-04-03', 'DW', 'ALPHA').check.allowed).toBe(true)
+    expect(handPickShiftLimitWarnings(monthData, '2026-04-01', 'DW', 'ALPHA')).toEqual([])
+
+    const personal = schedulerData({
+      positions: [dwPosition],
+      operators: [{ ...operator('ALPHA'), maxShiftsPerWeek: 1 }],
+      maxShiftsPerMonth: 0,
+      maxShiftsPerWeek: 0,
+      schedule: {
+        '2026-04-01': { coverage: true, assignments: { DW: 'ALPHA' } },
+        '2026-04-02': { coverage: true, assignments: {} },
+      },
+    })
+    expect(handPickShiftLimitWarnings(personal, '2026-04-02', 'DW', 'ALPHA')).toEqual([
+      'ALPHA would go over their daily rolling-week limit of 1.',
+    ])
+
+    const weekly = schedulerData({
+      positions: [weeklyExd],
+      operators: [operator('ALPHA', true)],
+      maxShiftsPerMonth: 4,
+      maxShiftsPerWeek: 2,
+      schedule: weekdaySchedule(4),
+    })
+    for (const date of Object.keys(weekly.schedule)) {
+      if (date < '2026-04-06' || date > '2026-04-10') weekly.schedule[date] = { coverage: false, assignments: {} }
+    }
+    expect(handPickShiftLimitWarnings(weekly, '2026-04-06', 'EXD', 'ALPHA')).toEqual([
+      'ALPHA would go over the region monthly limit of 4.',
+    ])
+    expect(handPickShiftLimitWarnings(weekly, '2026-04-06', 'EXD', 'ALPHA').some((warning) => warning.includes('rolling-week'))).toBe(false)
   })
 })
 

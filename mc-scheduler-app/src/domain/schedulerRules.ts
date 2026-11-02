@@ -44,9 +44,12 @@ const isoDateForMonthDay = (year: number, month: number, day: number): IsoDate =
   `${monthPrefix(year, month)}-${String(day).padStart(2, '0')}`
 
 const addDays = (dateStr: IsoDate, days: number): IsoDate => {
-  const date = new Date(`${dateStr}T00:00:00`)
-  date.setDate(date.getDate() + days)
-  return date.toISOString().split('T')[0]
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + days))
+  const monthNumber = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const dayNumber = String(date.getUTCDate()).padStart(2, '0')
+
+  return `${date.getUTCFullYear()}-${monthNumber}-${dayNumber}`
 }
 
 const getOperator = (operators: Operator[], callsign: Callsign) =>
@@ -189,6 +192,10 @@ export function canAssignOperator(
 
   if (options.preventBackToBack && workedOnDate(data.schedule, data.positions, callsign, addDays(dateStr, -1))) {
     return { allowed: false, reason: 'Operator worked the previous day.' }
+  }
+
+  if (options.preventBackToBack && workedOnDate(data.schedule, data.positions, callsign, addDays(dateStr, 1))) {
+    return { allowed: false, reason: `${callsign} already works the next day.` }
   }
 
   const weeklyLimit = options.maxShiftsPerWeek ?? (options.limitWeekly ? 2 : Number.POSITIVE_INFINITY)

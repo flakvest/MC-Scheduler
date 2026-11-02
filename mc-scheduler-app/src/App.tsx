@@ -56,7 +56,7 @@ function App() {
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
-  const [appVersion, setAppVersion] = useState('0.0.8')
+  const [appVersion, setAppVersion] = useState('0.0.9')
   const [newCallsign, setNewCallsign] = useState('')
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])

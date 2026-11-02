@@ -1,0 +1,60 @@
+name: Release Windows installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.0.9
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mc-scheduler-app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: mc-scheduler-app/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: mc-scheduler-app
+        run: npm ci
+
+      - name: Build the NSIS installer
+        working-directory: mc-scheduler-app
+        run: npm run tauri -- build
+
+      - name: Publish the installer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: MC Scheduler ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          body: |
+            Unsigned Windows setup for MC Scheduler.
+            Windows SmartScreen may warn until this installer is code-signed.
+          files: mc-scheduler-app/src-tauri/target/release/bundle/nsis/*.exe
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

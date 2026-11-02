@@ -1,3 +1,7 @@
+# MC Scheduler app
+
+Operators who already have 0.0.8 or 0.0.9 should follow [Upgrading to 0.1.0](../docs/UPGRADING.md) before running the new setup.
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

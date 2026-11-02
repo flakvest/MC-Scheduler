@@ -55,10 +55,15 @@ jobs:
 
       - name: Build the signed NSIS installer
         working-directory: mc-scheduler-app
+        shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build
+        run: |
+          # GitHub secret boxes often keep a trailing newline from a pasted file.
+          $env:TAURI_SIGNING_PRIVATE_KEY = $env:TAURI_SIGNING_PRIVATE_KEY.Trim()
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD.Trim()
+          npm run tauri -- build
 
       - name: Write latest.json
         working-directory: mc-scheduler-app

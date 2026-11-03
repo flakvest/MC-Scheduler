@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { calendarExportFilename, generateScheduleIcs } from './domain/calendarExport'
 import { backupToJson, fullBackupToJson, parseBackupJson, readSmartAssignSettingsFromBackup } from './domain/backupFiles'
 import {
   describeBackupLocation,
@@ -144,6 +145,9 @@ function App() {
   const [smartAssignSettings, setSmartAssignSettings] = useState(() => loadSmartAssignSettings())
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+  const [calendarExportOpen, setCalendarExportOpen] = useState(false)
+  const [calendarExportMonthOnly, setCalendarExportMonthOnly] = useState(false)
+  const [calendarExportOperator, setCalendarExportOperator] = useState('')
   const importInputRef = useRef<HTMLInputElement>(null)
   const finishSetupRef = useRef<HTMLParagraphElement>(null)
   const skipNextSaveRef = useRef(true)
@@ -879,6 +883,29 @@ function App() {
     window.print()
   }
 
+  const openCalendarExport = () => {
+    setCalendarExportMonthOnly(false)
+    setCalendarExportOperator('')
+    setCalendarExportOpen(true)
+  }
+
+  const exportCalendar = async () => {
+    const ics = generateScheduleIcs(data, {
+      month: calendarExportMonthOnly ? currentPrefix : undefined,
+      operator: calendarExportOperator || undefined,
+    })
+    const filename = calendarExportFilename(data.regionName)
+
+    try {
+      const saved = await saveTextFile(ics, filename, 'text/calendar', '')
+      if (!saved) return
+      setCalendarExportOpen(false)
+      setStatusMessage(`Calendar file saved: ${filename}.`)
+    } catch {
+      setStatusMessage('Calendar export failed.')
+    }
+  }
+
   const presentUpdate = (update: DesktopUpdate) => {
     setAvailableUpdate(update)
     setUpdateBackupPath(null)
@@ -1166,6 +1193,7 @@ function App() {
             <button type="button" className="secondary" onClick={exportBackup}>Export</button>
             <button type="button" className="secondary" onClick={exportMonthBackup}>Export Month</button>
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
+            <button type="button" className="secondary" onClick={openCalendarExport}>Export to calendar (.ics)</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
             <button type="button" className="secondary" onClick={() => void checkForUpdates()}>Check for updates</button>
@@ -1854,6 +1882,37 @@ function App() {
                 setAvailableUpdate(null)
               }}
             />
+          ) : null}
+          {calendarExportOpen ? (
+            <div className="confirm-backdrop" role="presentation">
+              <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-export-title">
+                <h3 id="calendar-export-title">Export to calendar</h3>
+                <p>The file lists every assigned coverage day. A weekly seat is one all-day event per day. Import it into its own calendar.</p>
+                <label>
+                  Scope
+                  <select
+                    value={calendarExportMonthOnly ? 'month' : 'all'}
+                    onChange={(event) => setCalendarExportMonthOnly(event.target.value === 'month')}
+                  >
+                    <option value="all">Full calendar</option>
+                    <option value="month">This month only</option>
+                  </select>
+                </label>
+                <label>
+                  Operator
+                  <select value={calendarExportOperator} onChange={(event) => setCalendarExportOperator(event.target.value)}>
+                    <option value="">All operators</option>
+                    {data.operators.map((operator) => (
+                      <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="confirm-actions">
+                  <button type="button" onClick={() => setCalendarExportOpen(false)}>Cancel</button>
+                  <button type="button" className="primary" onClick={() => void exportCalendar()}>Export</button>
+                </div>
+              </section>
+            </div>
           ) : null}
           {confirmAction ? (
             <div className="confirm-backdrop" role="presentation">

@@ -52,7 +52,7 @@ Changing the week start, or switching a filled seat from Daily to Weekly, keeps 
 
 With **Avoid back-to-back**, a weekly seat also stays off the previous week and the next week when that operator already works either week, on any seat. **Allow back-to-back** turns that off.
 
-The text schedule and the printed calendar still list one line per day. A channel, when one is set, is printed beside the position code. A weekly seat shows the same operator on each of that week's coverage days.
+The text schedule and the printed calendar still list one line per day. A channel, when one is set, is printed beside the position code. A weekly seat shows the same operator on each of that week's coverage days. **Export to calendar (.ics)** writes those same days as all-day events. See [Calendar export](CALENDAR-EXPORT.md).
 
 On the Operators screen, **Max shifts per month** and **Max daily shifts per rolling week** are optional. Leave a box blank to use the region default, which is shown as the placeholder. Enter 0 for no limit for that person. Those values are that person's own limits and replace the region numbers. Smart Assign uses them. A hand pick asks first instead of refusing.
 

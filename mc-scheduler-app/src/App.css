@@ -637,6 +637,15 @@ button[aria-disabled='true'] {
   white-space: pre-line;
 }
 
+.confirm-dialog label {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  color: #40515f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .confirm-actions {
   display: flex;
   justify-content: flex-end;

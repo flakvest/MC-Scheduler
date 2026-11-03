@@ -113,7 +113,7 @@ function App() {
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
-  const [appVersion, setAppVersion] = useState('0.1.0')
+  const [appVersion, setAppVersion] = useState('0.2.0')
   const [availableUpdate, setAvailableUpdate] = useState<DesktopUpdate | null>(null)
   const [updateBackupPath, setUpdateBackupPath] = useState<string | null>(null)
   const [updateBackupMessage, setUpdateBackupMessage] = useState<string | null>(null)

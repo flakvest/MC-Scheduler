@@ -183,11 +183,11 @@ export async function openSchedulerDataFolder(): Promise<boolean> {
 }
 
 export async function getAppVersion(): Promise<string> {
-  if (!isTauri()) return '0.1.0'
+  if (!isTauri()) return '0.2.0'
 
   try {
     return await getVersion()
   } catch {
-    return '0.1.0'
+    return '0.2.0'
   }
 }

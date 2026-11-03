@@ -1,6 +1,6 @@
 [package]
 name = "mc-scheduler-app"
-version = "0.1.0"
+version = "0.2.0"
 description = "MARS Message Center Scheduler desktop shell"
 license = "UNLICENSED"
 edition = "2021"

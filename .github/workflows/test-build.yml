@@ -1,6 +1,6 @@
 # Test installer only. This workflow does not create a release, tag, or latest.json.
-# Installed copies keep checking the published 0.1.0 manifest and are not offered this build.
-# The setup file is still version 0.1.0 and still uses the real data folder
+# Installed copies keep checking the published release manifest and are not offered this build.
+# The setup file uses the version in tauri.conf.json and the real data folder
 # com.marsmessagecenter.scheduler. Back up that PC before installing it over a live schedule.
 # It runs when this branch is pushed, or when someone starts it by hand. It does not run for every pull request.
 

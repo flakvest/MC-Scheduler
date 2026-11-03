@@ -1,6 +1,6 @@
 # MC Scheduler app
 
-Operators who already have 0.0.8 or 0.0.9 should follow [Upgrading to 0.1.0](../docs/UPGRADING.md) before running the new setup.
+Operators who already have an older copy should follow [Upgrading](../docs/UPGRADING.md) before running the new setup.
 
 # React + TypeScript + Vite
 

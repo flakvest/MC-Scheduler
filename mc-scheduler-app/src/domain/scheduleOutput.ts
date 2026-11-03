@@ -1,5 +1,5 @@
 import { ensureMonthSchedule } from './schedulerRules'
-import { type SchedulerData } from './schedulerTypes'
+import { sortedPositions, type SchedulerData } from './schedulerTypes'
 
 const monthName = (year: number, month: number) =>
   new Date(year, month - 1).toLocaleString('default', { month: 'long' })
@@ -10,8 +10,11 @@ const dateKey = (year: number, month: number, day: number) =>
 export function generateScheduleText(data: SchedulerData, year: number, month: number) {
   const schedule = ensureMonthSchedule(data.schedule, year, month, data.holidays)
   const daysInMonth = new Date(year, month, 0).getDate()
+  const title = data.regionName.trim()
+    ? `${data.regionName.trim().toUpperCase()} SCHEDULE:`
+    : 'MARS SCHEDULE:'
   const lines = [
-    `MARS SCHEDULE: ${monthName(year, month).toUpperCase()} ${year}`,
+    `${title} ${monthName(year, month).toUpperCase()} ${year}`,
     '='.repeat(30),
   ]
 
@@ -24,9 +27,10 @@ export function generateScheduleText(data: SchedulerData, year: number, month: n
       continue
     }
 
-    const assignments = data.positions.map((position) =>
-      `${position.shortName}:${scheduleDay.assignments[position.name] || 'OPEN'}`,
-    )
+    const assignments = sortedPositions(data.positions).map((position) => {
+      const seat = position.channel ? `${position.shortName} ${position.channel}` : position.shortName
+      return `${seat}:${scheduleDay.assignments[position.name] || 'OPEN'}`
+    })
 
     lines.push(`${String(day).padStart(2, '0')}: ${assignments.join(' | ')}`)
   }

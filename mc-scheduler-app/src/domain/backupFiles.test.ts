@@ -3,7 +3,13 @@ import { backupToJson, fullBackupToJson, parseBackupJson, readSmartAssignSetting
 import { defaultPositions, type SchedulerData } from './schedulerTypes'
 
 const data: SchedulerData = {
-  version: 1,
+  version: 2,
+  regionName: '',
+  setupComplete: true,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
+  maxShiftsPerMonth: 5,
+  maxShiftsPerWeek: 2,
   operators: [
     {
       callsign: 'ALPHA',

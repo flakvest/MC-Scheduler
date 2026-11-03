@@ -1,9 +1,11 @@
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { emptySchedulerData, defaultPositions, type SchedulerData, type Schedule, type VacationMap } from './schedulerTypes'
-import { applyHolidaysToData, normalizeHolidays } from './holidayRules'
+import { emptySchedulerData, type SchedulerData } from './schedulerTypes'
+import { applyHolidaysToData } from './holidayRules'
+import { migrateSchedulerData } from './schedulerMigration'
 
 const STORAGE_KEY = 'mc-scheduler-data-v1'
+const PREMIGRATION_KEY = 'mc-scheduler-data-v1-premigration'
 
 export type SchedulerStorageMode = 'appdata' | 'browser'
 
@@ -30,45 +32,44 @@ const browserStorageInfo = (): SchedulerStorageInfo => ({
 
 const fallbackSchedulerData = (): SchedulerData => emptySchedulerData()
 
-const normalizeSchedulerData = (value: unknown): SchedulerData => {
-  const fallback = fallbackSchedulerData()
-
-  if (!isRecord(value)) return fallback
-
-  return applyHolidaysToData({
-    version: 1,
-    operators: Array.isArray(value.operators) ? value.operators : fallback.operators,
-    positions: Array.isArray(value.positions) && value.positions.length > 0 ? value.positions : fallback.positions,
-    vacations: isRecord(value.vacations) ? value.vacations as VacationMap : fallback.vacations,
-    holidays: normalizeHolidays(value.holidays),
-    schedule: isRecord(value.schedule) ? value.schedule as Schedule : fallback.schedule,
-  })
+const normalizeSchedulerData = (value: unknown): { data: SchedulerData, migrated: boolean } => {
+  const prepared = migrateSchedulerData(value)
+  return { data: applyHolidaysToData(prepared.data), migrated: prepared.migrated }
 }
 
-const parseStoredBrowserData = (): SchedulerData => {
+const rememberBrowserPremigration = (stored: string) => {
+  if (!window.localStorage.getItem(PREMIGRATION_KEY)) {
+    window.localStorage.setItem(PREMIGRATION_KEY, stored)
+  }
+}
+
+const parseStoredBrowserData = (): { data: SchedulerData, migrated: boolean } => {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
-    if (!stored) return fallbackSchedulerData()
+    if (!stored) return { data: fallbackSchedulerData(), migrated: false }
 
-    return normalizeSchedulerData(JSON.parse(stored) as unknown)
+    const prepared = normalizeSchedulerData(JSON.parse(stored) as unknown)
+    if (prepared.migrated) rememberBrowserPremigration(stored)
+    return prepared
   } catch {
-    return fallbackSchedulerData()
+    return { data: fallbackSchedulerData(), migrated: false }
   }
 }
 
 const hasStoredWork = (data: SchedulerData): boolean =>
   data.operators.length > 0 ||
-  JSON.stringify(data.positions) !== JSON.stringify(defaultPositions) ||
+  data.positions.length > 0 ||
+  data.regionName.trim() !== '' ||
   Object.keys(data.vacations).length > 0 ||
   data.holidays.length > 0 ||
   Object.keys(data.schedule).length > 0
 
-const parseStoredJson = (value: unknown): SchedulerData => {
+const parseStoredJson = (value: unknown): { data: SchedulerData, migrated: boolean } => {
   if (typeof value === 'string') {
     try {
       return normalizeSchedulerData(JSON.parse(value) as unknown)
     } catch {
-      return fallbackSchedulerData()
+      return { data: fallbackSchedulerData(), migrated: false }
     }
   }
 
@@ -104,7 +105,7 @@ const normalizeStoragePaths = (value: unknown) => {
   }
 }
 
-export async function loadSchedulerData(): Promise<SchedulerData> {
+export async function loadSchedulerData(): Promise<{ data: SchedulerData, migrated: boolean }> {
   if (!isTauri()) {
     return parseStoredBrowserData()
   }
@@ -114,15 +115,17 @@ export async function loadSchedulerData(): Promise<SchedulerData> {
     const appData = parseStoredJson(stored)
     const browserData = parseStoredBrowserData()
 
-    if (!hasStoredWork(appData) && hasStoredWork(browserData)) {
-      await saveSchedulerData(browserData)
+    if (!hasStoredWork(appData.data) && hasStoredWork(browserData.data)) {
+      await saveSchedulerData(browserData.data)
       return browserData
     }
 
     return appData
   } catch {
     const browserData = parseStoredBrowserData()
-    return hasStoredWork(browserData) ? browserData : fallbackSchedulerData()
+    return hasStoredWork(browserData.data)
+      ? browserData
+      : { data: fallbackSchedulerData(), migrated: false }
   }
 }
 
@@ -180,11 +183,11 @@ export async function openSchedulerDataFolder(): Promise<boolean> {
 }
 
 export async function getAppVersion(): Promise<string> {
-  if (!isTauri()) return '0.1.0'
+  if (!isTauri()) return '0.2.0'
 
   try {
     return await getVersion()
   } catch {
-    return '0.1.0'
+    return '0.2.0'
   }
 }

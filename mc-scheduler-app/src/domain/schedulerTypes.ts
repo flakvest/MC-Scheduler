@@ -1,13 +1,20 @@
 export type PositionCode = string
 export type Callsign = string
 export type IsoDate = string
+export type PositionType = 'ale' | 'fixed'
+export type AssignmentPeriod = 'daily' | 'weekly'
+export type BackToBackPolicy = 'avoid' | 'allow'
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
 
 export type Position = {
   name: PositionCode
   shortName: PositionCode
-  requiresALE: boolean
+  displayName: string
+  type: PositionType
+  assignmentPeriod: AssignmentPeriod
+  channel: string
+  sortOrder: number
 }
 
 export type Operator = {
@@ -15,6 +22,8 @@ export type Operator = {
   ale: boolean
   unavailable: Weekday[]
   positionPermissions: Record<PositionCode, boolean>
+  maxShiftsPerMonth?: number
+  maxShiftsPerWeek?: number
 }
 
 export type Vacation = {
@@ -39,8 +48,19 @@ export type ScheduleDay = {
 
 export type Schedule = Record<IsoDate, ScheduleDay>
 
+export const DEFAULT_MAX_SHIFTS_PER_MONTH = 5
+export const DEFAULT_MAX_SHIFTS_PER_WEEK = 2
+export const MAX_SHIFTS_PER_MONTH_CAP = 31
+export const MAX_SHIFTS_PER_WEEK_CAP = 14
+
 export type SchedulerData = {
-  version: 1
+  version: 2
+  regionName: string
+  setupComplete: boolean
+  backToBackPolicy: BackToBackPolicy
+  weekStartsOn: Weekday
+  maxShiftsPerMonth: number
+  maxShiftsPerWeek: number
   operators: Operator[]
   positions: Position[]
   vacations: VacationMap
@@ -65,17 +85,30 @@ export const POSITION_EXD = 'EXD'
 export const POSITION_DW = 'DW'
 export const POSITION_DR = 'DR'
 
-export const defaultPositions: Position[] = [
-  { name: POSITION_EXD, shortName: POSITION_EXD, requiresALE: true },
-  { name: POSITION_DW, shortName: POSITION_DW, requiresALE: false },
-  { name: POSITION_DR, shortName: POSITION_DR, requiresALE: false },
+export const region4ExamplePositions = (): Position[] => [
+  { name: POSITION_EXD, shortName: POSITION_EXD, displayName: 'EXD', type: 'ale', assignmentPeriod: 'daily', channel: '', sortOrder: 1 },
+  { name: POSITION_DW, shortName: POSITION_DW, displayName: 'DeltaWhite', type: 'fixed', assignmentPeriod: 'daily', channel: '', sortOrder: 2 },
+  { name: POSITION_DR, shortName: POSITION_DR, displayName: 'DeltaRed', type: 'fixed', assignmentPeriod: 'daily', channel: '', sortOrder: 3 },
 ]
 
+export const defaultPositions: Position[] = region4ExamplePositions()
+
 export const emptySchedulerData = (): SchedulerData => ({
-  version: 1,
+  version: 2,
+  regionName: '',
+  setupComplete: false,
+  backToBackPolicy: 'avoid',
+  weekStartsOn: 1,
+  maxShiftsPerMonth: DEFAULT_MAX_SHIFTS_PER_MONTH,
+  maxShiftsPerWeek: DEFAULT_MAX_SHIFTS_PER_WEEK,
   operators: [],
-  positions: defaultPositions,
+  positions: [],
   vacations: {},
   holidays: [],
   schedule: {},
 })
+
+export const isAleDuty = (position: Position) => position.type === 'ale'
+
+export const sortedPositions = (positions: Position[]) =>
+  [...positions].sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))

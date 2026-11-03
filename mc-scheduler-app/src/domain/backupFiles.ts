@@ -1,6 +1,7 @@
 import { importLegacyBackup } from './legacyBackup'
-import { emptySchedulerData, type LegacyBackupData, type SchedulerData } from './schedulerTypes'
-import { applyHolidaysToData, normalizeHolidays } from './holidayRules'
+import { type LegacyBackupData, type SchedulerData } from './schedulerTypes'
+import { applyHolidaysToData } from './holidayRules'
+import { migrateSchedulerData } from './schedulerMigration'
 import { parseSmartAssignSettings, type SmartAssignSettings } from './smartAssignSettings'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -13,18 +14,8 @@ export function parseBackupJson(jsonText: string): SchedulerData {
     throw new Error('Backup file is not a JSON object.')
   }
 
-  if (parsed.version === 1 && Array.isArray(parsed.operators) && Array.isArray(parsed.positions)) {
-    const fallback = emptySchedulerData()
-    const backup = parsed as Partial<SchedulerData>
-
-    return applyHolidaysToData({
-      version: 1,
-      operators: Array.isArray(backup.operators) ? backup.operators : fallback.operators,
-      positions: Array.isArray(backup.positions) && backup.positions.length > 0 ? backup.positions : fallback.positions,
-      vacations: backup.vacations && typeof backup.vacations === 'object' ? backup.vacations : fallback.vacations,
-      holidays: normalizeHolidays(backup.holidays),
-      schedule: backup.schedule && typeof backup.schedule === 'object' ? backup.schedule : fallback.schedule,
-    })
+  if ((parsed.version === 1 || parsed.version === 2) && Array.isArray(parsed.operators) && Array.isArray(parsed.positions)) {
+    return applyHolidaysToData(migrateSchedulerData(parsed).data)
   }
 
   return importLegacyBackup(parsed as LegacyBackupData)

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { calendarExportFilename, calendarSavedMessage, countCalendarAssignments, generateScheduleIcs } from './domain/calendarExport'
 import { backupToJson, fullBackupToJson, parseBackupJson, readSmartAssignSettingsFromBackup } from './domain/backupFiles'
 import {
   describeBackupLocation,
@@ -12,11 +13,50 @@ import { UpdateDialog } from './UpdateDialog'
 import { clearAssignmentsForMonth, createMonthSnapshot, monthHasAssignments } from './domain/monthTools'
 import { deletePosition, editPosition } from './domain/positionManagement'
 import { generateScheduleText } from './domain/scheduleOutput'
-import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
+import { assignOperator, canAssignOperator, ensureMonthSchedule, findOpenAssignmentIssues, getShiftCount, handPickShiftLimitWarnings, operatorsReplacedByWeeklyAssign, setCoverage, smartAssign, type AssignmentIssue } from './domain/schedulerRules'
 import { getAppVersion, getSchedulerStorageInfo, loadSchedulerData, openSchedulerDataFolder, saveSchedulerData, type SchedulerStorageInfo } from './domain/schedulerStorage'
 import { applyHolidaysToData, fetchFederalHolidays, generateFederalHolidays, holidayForDate, normalizeHolidayName, uniqueHolidays } from './domain/holidayRules'
-import { emptySchedulerData, type Holiday, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
+import { normalizeChannel } from './domain/schedulerMigration'
+import { finishSetupBlocker, loadRegion4ExampleData, normalizePositionCode, parseOperatorShiftLimit } from './domain/regionSetup'
+import { emptySchedulerData, MAX_SHIFTS_PER_MONTH_CAP, MAX_SHIFTS_PER_WEEK_CAP, sortedPositions, type Holiday, type PositionType, type SchedulerData, type VacationMap, type Weekday } from './domain/schedulerTypes'
 import { loadSmartAssignSettings, saveSmartAssignSettings } from './domain/smartAssignSettings'
+
+function shiftLimitChoices(maximum: number) {
+  return Array.from({ length: maximum + 1 }, (_, value) => value)
+}
+
+function ShiftLimitFields({
+  month,
+  week,
+  onMonth,
+  onWeek,
+}: {
+  month: number
+  week: number
+  onMonth: (value: number) => void
+  onWeek: (value: number) => void
+}) {
+  return (
+    <>
+      <label>
+        Max shifts/month
+        <select value={month} onChange={(event) => onMonth(Number(event.target.value))}>
+          {shiftLimitChoices(MAX_SHIFTS_PER_MONTH_CAP).map((value) => (
+            <option value={value} key={value}>{value === 0 ? 'No limit' : value}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Max daily shifts/week
+        <select value={week} onChange={(event) => onWeek(Number(event.target.value))}>
+          {shiftLimitChoices(MAX_SHIFTS_PER_WEEK_CAP).map((value) => (
+            <option value={value} key={value}>{value === 0 ? 'No limit' : value}</option>
+          ))}
+        </select>
+      </label>
+    </>
+  )
+}
 
 const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Sun', value: 0 },
@@ -26,6 +66,15 @@ const weekdays: { label: string, value: Weekday }[] = [
   { label: 'Thu', value: 4 },
   { label: 'Fri', value: 5 },
   { label: 'Sat', value: 6 },
+]
+const weekStartDays: { label: string, value: Weekday }[] = [
+  { label: 'Sunday', value: 0 },
+  { label: 'Monday', value: 1 },
+  { label: 'Tuesday', value: 2 },
+  { label: 'Wednesday', value: 3 },
+  { label: 'Thursday', value: 4 },
+  { label: 'Friday', value: 5 },
+  { label: 'Saturday', value: 6 },
 ]
 const today = new Date()
 const monthOptions = Array.from({ length: 12 }, (_, index) => ({
@@ -64,7 +113,7 @@ function App() {
     backupFolder: 'Manual exports only',
     canOpenFolder: false,
   })
-  const [appVersion, setAppVersion] = useState('0.1.0')
+  const [appVersion, setAppVersion] = useState('0.2.0')
   const [availableUpdate, setAvailableUpdate] = useState<DesktopUpdate | null>(null)
   const [updateBackupPath, setUpdateBackupPath] = useState<string | null>(null)
   const [updateBackupMessage, setUpdateBackupMessage] = useState<string | null>(null)
@@ -77,9 +126,15 @@ function App() {
   const [newOperatorAle, setNewOperatorAle] = useState(false)
   const [newOperatorUnavailable, setNewOperatorUnavailable] = useState<Weekday[]>([])
   const [newOperatorPermissions, setNewOperatorPermissions] = useState<Record<string, boolean>>({})
+  const [newOperatorMonthLimit, setNewOperatorMonthLimit] = useState('')
+  const [newOperatorWeekLimit, setNewOperatorWeekLimit] = useState('')
   const [editingOperatorCallsign, setEditingOperatorCallsign] = useState<string | null>(null)
   const [newPositionCode, setNewPositionCode] = useState('')
-  const [newPositionRequiresAle, setNewPositionRequiresAle] = useState(false)
+  const [newPositionDisplayName, setNewPositionDisplayName] = useState('')
+  const [newPositionType, setNewPositionType] = useState<PositionType>('fixed')
+  const [newPositionPeriod, setNewPositionPeriod] = useState<'daily' | 'weekly'>('daily')
+  const [newPositionChannel, setNewPositionChannel] = useState('')
+  const [newPositionSort, setNewPositionSort] = useState('')
   const [editingPositionCode, setEditingPositionCode] = useState<string | null>(null)
   const [vacationCallsign, setVacationCallsign] = useState('')
   const [vacationStart, setVacationStart] = useState('')
@@ -90,7 +145,12 @@ function App() {
   const [smartAssignSettings, setSmartAssignSettings] = useState(() => loadSmartAssignSettings())
   const [assignmentIssues, setAssignmentIssues] = useState<AssignmentIssue[]>([])
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+  const [calendarExportOpen, setCalendarExportOpen] = useState(false)
+  const [calendarExportMonthOnly, setCalendarExportMonthOnly] = useState(false)
+  const [calendarExportOperator, setCalendarExportOperator] = useState('')
+  const [calendarExportMessage, setCalendarExportMessage] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
+  const finishSetupRef = useRef<HTMLParagraphElement>(null)
   const skipNextSaveRef = useRef(true)
 
   const scheduleData = useMemo(() => ({
@@ -102,7 +162,7 @@ function App() {
     let active = true
 
     const hydrateStorage = async () => {
-      const [loadedData, loadedStorageInfo, loadedAppVersion] = await Promise.all([
+      const [loaded, loadedStorageInfo, loadedAppVersion] = await Promise.all([
         loadSchedulerData(),
         getSchedulerStorageInfo(),
         getAppVersion(),
@@ -110,8 +170,8 @@ function App() {
 
       if (!active) return
 
-      skipNextSaveRef.current = true
-      setData(loadedData)
+      skipNextSaveRef.current = !loaded.migrated
+      setData(loaded.data)
       setStorageInfo(loadedStorageInfo)
       setAppVersion(loadedAppVersion)
       setStorageReady(true)
@@ -204,14 +264,16 @@ function App() {
     setMonth(next.getMonth() + 1)
   }
 
+  const schedulingOptions = {
+    year,
+    month,
+    maxShifts: data.maxShiftsPerMonth,
+    preventBackToBack: data.backToBackPolicy !== 'allow',
+    maxShiftsPerWeek: data.maxShiftsPerWeek,
+  }
+
   const runSmartAssign = () => {
-    const options = {
-      year,
-      month,
-      maxShifts: smartAssignSettings.maxShiftsPerMonth,
-      preventBackToBack: smartAssignSettings.noBackToBack,
-      maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
-    }
+    const options = schedulingOptions
     const result = smartAssign(scheduleData, {
       ...options,
     })
@@ -222,13 +284,7 @@ function App() {
   }
 
   const refreshAssignmentIssues = () => {
-    const issues = findOpenAssignmentIssues(scheduleData, {
-      year,
-      month,
-      maxShifts: smartAssignSettings.maxShiftsPerMonth,
-      preventBackToBack: smartAssignSettings.noBackToBack,
-      maxShiftsPerWeek: smartAssignSettings.maxShiftsPerWeek,
-    })
+    const issues = findOpenAssignmentIssues(scheduleData, schedulingOptions)
 
     setAssignmentIssues(issues)
     setStatusMessage(issues.length === 0 ? 'No open assignment issues found.' : `${issues.length} open assignment issues found.`)
@@ -252,7 +308,22 @@ function App() {
     setNewOperatorAle(false)
     setNewOperatorUnavailable([])
     setNewOperatorPermissions({})
+    setNewOperatorMonthLimit('')
+    setNewOperatorWeekLimit('')
     setEditingOperatorCallsign(null)
+  }
+
+  const operatorLimitFields = () => {
+    const month = parseOperatorShiftLimit(newOperatorMonthLimit, MAX_SHIFTS_PER_MONTH_CAP, 'Max shifts per month')
+    const week = parseOperatorShiftLimit(newOperatorWeekLimit, MAX_SHIFTS_PER_WEEK_CAP, 'Max daily shifts per rolling week')
+    if (month.error) return { error: month.error }
+    if (week.error) return { error: week.error }
+    return {
+      limits: {
+        ...(month.limit === undefined ? {} : { maxShiftsPerMonth: month.limit }),
+        ...(week.limit === undefined ? {} : { maxShiftsPerWeek: week.limit }),
+      },
+    }
   }
 
   const startEditOperator = (callsign: string) => {
@@ -264,6 +335,8 @@ function App() {
     setNewOperatorAle(operator.ale)
     setNewOperatorUnavailable(operator.unavailable)
     setNewOperatorPermissions(operator.positionPermissions)
+    setNewOperatorMonthLimit(operator.maxShiftsPerMonth === undefined ? '' : String(operator.maxShiftsPerMonth))
+    setNewOperatorWeekLimit(operator.maxShiftsPerWeek === undefined ? '' : String(operator.maxShiftsPerWeek))
   }
 
   const addOperator = () => {
@@ -279,8 +352,14 @@ function App() {
       return
     }
 
+    const parsedLimits = operatorLimitFields()
+    if (parsedLimits.error) {
+      setStatusMessage(parsedLimits.error)
+      return
+    }
+
     const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
-      permissions[position.name] = position.name === 'EXD'
+      permissions[position.name] = position.type === 'ale'
         ? newOperatorAle
         : newOperatorPermissions[position.name] !== false
       return permissions
@@ -295,6 +374,7 @@ function App() {
           ale: newOperatorAle,
           unavailable: [...newOperatorUnavailable].sort(),
           positionPermissions,
+          ...parsedLimits.limits,
         },
       ],
     }))
@@ -317,8 +397,14 @@ function App() {
       return
     }
 
+    const parsedLimits = operatorLimitFields()
+    if (parsedLimits.error) {
+      setStatusMessage(parsedLimits.error)
+      return
+    }
+
     const positionPermissions = data.positions.reduce<Record<string, boolean>>((permissions, position) => {
-      permissions[position.name] = position.name === 'EXD'
+      permissions[position.name] = position.type === 'ale'
         ? newOperatorAle
         : newOperatorPermissions[position.name] !== false
       return permissions
@@ -332,6 +418,7 @@ function App() {
             ale: newOperatorAle,
             unavailable: [...newOperatorUnavailable].sort(),
             positionPermissions,
+            ...parsedLimits.limits,
           }
         : operator),
       schedule: Object.entries(current.schedule).reduce<SchedulerData['schedule']>((schedule, [date, day]) => {
@@ -398,15 +485,11 @@ function App() {
   }
 
   const addPosition = () => {
-    const positionCode = newPositionCode.trim().toUpperCase()
+    const codeResult = normalizePositionCode(newPositionCode)
+    const positionCode = codeResult.code
 
-    if (!positionCode) {
-      setStatusMessage('Enter a position code before adding a position.')
-      return
-    }
-
-    if (positionCode === 'EXD') {
-      setStatusMessage('EXD already exists and stays linked to ALE.')
+    if (codeResult.error) {
+      setStatusMessage(codeResult.error)
       return
     }
 
@@ -415,6 +498,22 @@ function App() {
       return
     }
 
+    const channelResult = normalizeChannel(newPositionChannel)
+    if (channelResult.error) {
+      setStatusMessage(channelResult.error)
+      return
+    }
+
+    const sortOrder = newPositionSort.trim() === ''
+      ? Math.max(0, ...data.positions.map((position) => position.sortOrder)) + 1
+      : Number(newPositionSort)
+    if (!Number.isInteger(sortOrder)) {
+      setStatusMessage('Sort order must be a whole number.')
+      return
+    }
+
+    const displayName = newPositionDisplayName.trim() || positionCode
+
     setData((current) => ({
       ...current,
       positions: [
@@ -422,25 +521,65 @@ function App() {
         {
           name: positionCode,
           shortName: positionCode,
-          requiresALE: newPositionRequiresAle,
+          displayName,
+          type: newPositionType,
+          assignmentPeriod: newPositionPeriod,
+          channel: channelResult.channel,
+          sortOrder,
         },
       ],
       operators: current.operators.map((operator) => ({
         ...operator,
         positionPermissions: {
           ...operator.positionPermissions,
-          [positionCode]: newPositionRequiresAle ? operator.ale : true,
+          [positionCode]: newPositionType === 'ale' ? operator.ale : true,
         },
       })),
     }))
-    setNewPositionCode('')
-    setNewPositionRequiresAle(false)
+    resetPositionForm()
     setStatusMessage(`${positionCode} position added.`)
+  }
+
+  const applyRegion4Example = () => {
+    setData((current) => loadRegion4ExampleData(current))
+    setStatusMessage('Loaded the Region 4 example: EXD, DeltaWhite, and DeltaRed.')
+  }
+
+  const loadRegion4Example = () => {
+    if (data.positions.length === 0) {
+      applyRegion4Example()
+      return
+    }
+
+    setConfirmAction({
+      title: 'Replace the current positions?',
+      message: 'Load Region 4 example replaces the position list with EXD, DeltaWhite, and DeltaRed. Assignments for any other seat are removed so they cannot keep a person from taking a seat that day.',
+      confirmLabel: 'Load Example',
+      onConfirm: applyRegion4Example,
+    })
+  }
+
+  const finishRegionSetup = () => {
+    const blocker = finishSetupBlocker(data)
+    if (blocker) {
+      window.setTimeout(() => {
+        finishSetupRef.current?.scrollIntoView({ block: 'center' })
+        finishSetupRef.current?.focus()
+      }, 0)
+      return
+    }
+
+    setData((current) => ({ ...current, setupComplete: true }))
+    setStatusMessage(`${data.regionName.trim()} is ready to schedule.`)
   }
 
   const resetPositionForm = () => {
     setNewPositionCode('')
-    setNewPositionRequiresAle(false)
+    setNewPositionDisplayName('')
+    setNewPositionType('fixed')
+    setNewPositionPeriod('daily')
+    setNewPositionChannel('')
+    setNewPositionSort('')
     setEditingPositionCode(null)
   }
 
@@ -449,17 +588,24 @@ function App() {
     if (!position) return
 
     setEditingPositionCode(position.name)
-    setNewPositionCode(position.shortName)
-    setNewPositionRequiresAle(position.requiresALE)
+    setNewPositionCode(position.name)
+    setNewPositionDisplayName(position.displayName)
+    setNewPositionType(position.type)
+    setNewPositionPeriod(position.assignmentPeriod)
+    setNewPositionChannel(position.channel)
+    setNewPositionSort(String(position.sortOrder))
   }
 
   const savePositionEdit = () => {
     if (!editingPositionCode) return
 
-    const positionCode = newPositionCode.trim().toUpperCase()
+    const codeResult = normalizePositionCode(newPositionCode)
+    const positionCode = codeResult.code
 
-    if (!positionCode) {
-      setStatusMessage('Enter a position code before saving the position.')
+    if (codeResult.error) {
+      setStatusMessage(codeResult.error === 'Enter a position code.'
+        ? 'Enter a position code before saving the position.'
+        : codeResult.error)
       return
     }
 
@@ -486,12 +632,27 @@ function App() {
   const savePositionEditNow = (positionCode: string, codeChanged: boolean) => {
     if (!editingPositionCode) return
 
+    const channelResult = normalizeChannel(newPositionChannel)
+    if (channelResult.error) {
+      setStatusMessage(channelResult.error)
+      return
+    }
+
+    const sortOrder = Number(newPositionSort)
+    if (!Number.isInteger(sortOrder)) {
+      setStatusMessage('Sort order must be a whole number.')
+      return
+    }
+
     const result = editPosition(data, {
       positionCode: editingPositionCode,
       updates: {
         name: positionCode,
-        shortName: positionCode,
-        requiresALE: newPositionRequiresAle,
+        displayName: newPositionDisplayName.trim() || positionCode,
+        type: newPositionType,
+        assignmentPeriod: newPositionPeriod,
+        channel: channelResult.channel,
+        sortOrder,
       },
       options: { allowCodeOrNameChange: codeChanged },
     })
@@ -527,7 +688,20 @@ function App() {
     })
   }
 
+  const describeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
+    const weekly = scheduleData.positions.find((position) => position.name === positionCode)?.assignmentPeriod === 'weekly'
+    return callsign
+      ? weekly
+        ? `${callsign} assigned to ${positionCode} for every coverage day that week.`
+        : `${callsign} assigned to ${positionCode} on ${dateStr}.`
+      : weekly
+        ? `${positionCode} cleared for every coverage day that week.`
+        : `${positionCode} cleared on ${dateStr}.`
+  }
+
   const changeAssignment = (dateStr: string, positionCode: string, callsign: string) => {
+    const replaced = operatorsReplacedByWeeklyAssign(scheduleData, dateStr, positionCode, callsign)
+    const limitWarnings = handPickShiftLimitWarnings(scheduleData, dateStr, positionCode, callsign)
     const result = assignOperator(scheduleData, dateStr, positionCode, callsign)
 
     if (!result.check.allowed) {
@@ -535,8 +709,26 @@ function App() {
       return
     }
 
-    setData(result.data)
-    setStatusMessage(callsign ? `${callsign} assigned to ${positionCode} on ${dateStr}.` : `${positionCode} cleared on ${dateStr}.`)
+    const apply = () => {
+      setData(result.data)
+      setStatusMessage(describeAssignment(dateStr, positionCode, callsign))
+    }
+
+    if (replaced.length === 0 && limitWarnings.length === 0) {
+      apply()
+      return
+    }
+
+    const names = replaced.join(' and ')
+    const replacement = replaced.length === 0
+      ? ''
+      : `${names} already ${replaced.length === 1 ? 'holds' : 'hold'} ${positionCode} on coverage days this week, including any days in a neighboring month. Assigning ${callsign} replaces them for the whole week.`
+    setConfirmAction({
+      title: limitWarnings.length > 0 ? `Assign ${callsign} anyway?` : `Replace ${names}?`,
+      message: [replacement, ...limitWarnings].filter(Boolean).join(' '),
+      confirmLabel: 'Assign anyway',
+      onConfirm: apply,
+    })
   }
 
   const changeCoverage = (dateStr: string, coverage: boolean) => {
@@ -558,7 +750,7 @@ function App() {
   const confirmClearCalendarAssignments = () => {
     setConfirmAction({
       title: `Clear ${monthName(year, month)} ${year}?`,
-      message: 'This will remove all assignments for the selected month. Coverage settings and other months will remain.',
+      message: 'This removes every assignment in the selected month. A weekly seat also clears the rest of any week that crosses into the neighboring month. Daily seats in other months stay.',
       confirmLabel: 'Clear Assignments',
       onConfirm: clearCalendarAssignmentsNow,
     })
@@ -607,7 +799,13 @@ function App() {
     setStatusMessage(opened ? `Opened ${storageInfo.location}.` : 'Could not open the data folder.')
   }
 
-  const saveTextFile = async (contents: string, filename: string, mimeType: string, status: string) => {
+  const saveTextFile = async (
+    contents: string,
+    filename: string,
+    mimeType: string,
+    status: string,
+    filters?: { name: string, extensions: string[] }[],
+  ) => {
     const isTauri = isDesktopApp(window)
 
     if (isTauri) {
@@ -615,7 +813,7 @@ function App() {
         import('@tauri-apps/plugin-dialog'),
         import('@tauri-apps/plugin-fs'),
       ])
-      const path = await save({ defaultPath: filename })
+      const path = await save({ defaultPath: filename, filters })
 
       if (!path) {
         setStatusMessage('Save canceled.')
@@ -690,6 +888,39 @@ function App() {
 
   const printSchedule = () => {
     window.print()
+  }
+
+  const openCalendarExport = () => {
+    setCalendarExportMonthOnly(false)
+    setCalendarExportOperator('')
+    setCalendarExportMessage(null)
+    setCalendarExportOpen(true)
+  }
+
+  const exportCalendar = async () => {
+    const exportOptions = {
+      month: calendarExportMonthOnly ? currentPrefix : undefined,
+      operator: calendarExportOperator || undefined,
+    }
+    if (countCalendarAssignments(data, exportOptions) === 0) {
+      setCalendarExportMessage('There are no assigned coverage days to export.')
+      return
+    }
+
+    const ics = generateScheduleIcs(data, exportOptions)
+    const filename = calendarExportFilename(data.regionName)
+    setCalendarExportOpen(false)
+    setCalendarExportMessage(null)
+
+    try {
+      const saved = await saveTextFile(ics, filename, 'text/calendar', '', [
+        { name: 'iCalendar', extensions: ['ics'] },
+      ])
+      if (!saved) return
+      setStatusMessage(calendarSavedMessage(saved))
+    } catch {
+      setStatusMessage('Calendar export failed.')
+    }
   }
 
   const presentUpdate = (update: DesktopUpdate) => {
@@ -979,6 +1210,7 @@ function App() {
             <button type="button" className="secondary" onClick={exportBackup}>Export</button>
             <button type="button" className="secondary" onClick={exportMonthBackup}>Export Month</button>
             <button type="button" className="secondary" onClick={downloadScheduleText}>Save Text</button>
+            <button type="button" className="secondary" onClick={openCalendarExport}>Export to calendar (.ics)</button>
             <button type="button" className="secondary" onClick={printSchedule}>Print</button>
             <button type="button" className="secondary" onClick={refreshAssignmentIssues}>Check Issues</button>
             <button type="button" className="secondary" onClick={() => void checkForUpdates()}>Check for updates</button>
@@ -1038,6 +1270,153 @@ function App() {
         </section>
 
         <p className="status-line">{statusMessage}</p>
+        {data.setupComplete ? null : (
+          <section className="setup-panel" aria-label="Region setup">
+            <p className="eyebrow">First-run setup</p>
+            <h3>Set up this message center</h3>
+            <p>Start with an empty position list. Add the seats this region uses, or load the Region 4 example.</p>
+            <label>
+              Region name
+              <input
+                type="text"
+                value={data.regionName}
+                onChange={(event) => setData((current) => ({ ...current, regionName: event.target.value }))}
+                placeholder="Army MARS Region 4"
+              />
+            </label>
+            <label>
+              Back-to-back
+              <select
+                value={data.backToBackPolicy}
+                onChange={(event) => setData((current) => ({
+                  ...current,
+                  backToBackPolicy: event.target.value === 'allow' ? 'allow' : 'avoid',
+                }))}
+              >
+                <option value="avoid">Avoid back-to-back</option>
+                <option value="allow">Allow back-to-back</option>
+              </select>
+            </label>
+            <label>
+              Week starts on
+              <select
+                value={data.weekStartsOn}
+                onChange={(event) => setData((current) => ({
+                  ...current,
+                  weekStartsOn: Number(event.target.value) as Weekday,
+                }))}
+              >
+                {weekStartDays.map((day) => (
+                  <option value={day.value} key={day.value}>{day.label}</option>
+                ))}
+              </select>
+            </label>
+            <ShiftLimitFields
+              month={data.maxShiftsPerMonth}
+              week={data.maxShiftsPerWeek}
+              onMonth={(value) => setData((current) => ({ ...current, maxShiftsPerMonth: value }))}
+              onWeek={(value) => setData((current) => ({ ...current, maxShiftsPerWeek: value }))}
+            />
+            <form
+              className="operator-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (editingPositionCode) savePositionEdit()
+                else addPosition()
+              }}
+            >
+              <label>
+                Code
+                <input
+                  type="text"
+                  maxLength={12}
+                  value={newPositionCode}
+                  onChange={(event) => setNewPositionCode(event.target.value.toUpperCase())}
+                  placeholder="DW"
+                />
+              </label>
+              <label>
+                Name
+                <input
+                  type="text"
+                  value={newPositionDisplayName}
+                  onChange={(event) => setNewPositionDisplayName(event.target.value)}
+                  placeholder="DeltaWhite"
+                />
+              </label>
+              <label>
+                Type
+                <select value={newPositionType} onChange={(event) => setNewPositionType(event.target.value as PositionType)}>
+                  <option value="fixed">Fixed-frequency / net</option>
+                  <option value="ale">ALE duty</option>
+                </select>
+              </label>
+              <label>
+                Assignment
+                <select
+                  value={newPositionPeriod}
+                  onChange={(event) => setNewPositionPeriod(event.target.value === 'weekly' ? 'weekly' : 'daily')}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </label>
+              <label>
+                Channel name (optional)
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={newPositionChannel}
+                  onChange={(event) => setNewPositionChannel(event.target.value.toUpperCase())}
+                  placeholder="AB12"
+                />
+              </label>
+              <label>
+                Sort order
+                <input
+                  type="number"
+                  value={newPositionSort}
+                  onChange={(event) => setNewPositionSort(event.target.value)}
+                  placeholder="1"
+                />
+              </label>
+              <div className="form-actions">
+                <button type="submit" className="primary">{editingPositionCode ? 'Save Position' : 'Add Position'}</button>
+                {editingPositionCode ? <button type="button" onClick={resetPositionForm}>Cancel Edit</button> : null}
+              </div>
+            </form>
+            {data.positions.length === 0 ? <p>No positions yet.</p> : (
+              <div className="table-list">
+                {sortedPositions(data.positions).map((position) => (
+                  <div className="table-row" key={position.name}>
+                    <strong>{position.name}</strong>
+                    <span>{position.displayName}{position.channel ? ` · ${position.channel}` : ''}</span>
+                    <span>{position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}</span>
+                    <span>{position.assignmentPeriod === 'weekly' ? 'Weekly' : 'Daily'}</span>
+                    <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
+                    <button type="button" className="danger" onClick={() => confirmRemovePosition(position.name)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="form-actions">
+              <button type="button" onClick={loadRegion4Example}>Load Region 4 example</button>
+              <button
+                type="button"
+                className="primary"
+                aria-disabled={finishSetupBlocker(data) !== null}
+                onClick={finishRegionSetup}
+              >
+                Finish setup
+              </button>
+            </div>
+            {finishSetupBlocker(data) ? (
+              <p className="setup-error" role="alert" tabIndex={-1} ref={finishSetupRef}>
+                {finishSetupBlocker(data)}
+              </p>
+            ) : null}
+          </section>
+        )}
 
         <section className="admin-actions" aria-label="Administrative tools">
           <button type="button" onClick={() => setActiveAdminPanel('operators')}>Operators</button>
@@ -1052,44 +1431,48 @@ function App() {
             <h3>Global Settings</h3>
           </div>
           <label>
-            Max shifts/month
+            Region name
+            <input
+              type="text"
+              value={data.regionName}
+              onChange={(event) => setData((current) => ({ ...current, regionName: event.target.value }))}
+              placeholder="Army MARS Region 4"
+            />
+          </label>
+          <ShiftLimitFields
+            month={data.maxShiftsPerMonth}
+            week={data.maxShiftsPerWeek}
+            onMonth={(value) => setData((current) => ({ ...current, maxShiftsPerMonth: value }))}
+            onWeek={(value) => setData((current) => ({ ...current, maxShiftsPerWeek: value }))}
+          />
+          <label>
+            Back-to-back
             <select
-              value={smartAssignSettings.maxShiftsPerMonth}
-              onChange={(event) => setSmartAssignSettings((current) => ({
+              value={data.backToBackPolicy}
+              onChange={(event) => setData((current) => ({
                 ...current,
-                maxShiftsPerMonth: Number(event.target.value),
+                backToBackPolicy: event.target.value === 'allow' ? 'allow' : 'avoid',
               }))}
             >
-              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                <option value={value} key={value}>{value}</option>
-              ))}
+              <option value="avoid">Avoid back-to-back</option>
+              <option value="allow">Allow back-to-back</option>
             </select>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={smartAssignSettings.noBackToBack}
-              onChange={(event) => setSmartAssignSettings((current) => ({
-                ...current,
-                noBackToBack: event.target.checked,
-              }))}
-            />
-            No back-to-back
           </label>
           <label>
-            Max shifts/week
+            Week starts on
             <select
-              value={smartAssignSettings.maxShiftsPerWeek}
-              onChange={(event) => setSmartAssignSettings((current) => ({
+              value={data.weekStartsOn}
+              onChange={(event) => setData((current) => ({
                 ...current,
-                maxShiftsPerWeek: Number(event.target.value),
+                weekStartsOn: Number(event.target.value) as Weekday,
               }))}
             >
-              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                <option value={value} key={value}>{value}</option>
+              {weekStartDays.map((day) => (
+                <option value={day.value} key={day.value}>{day.label}</option>
               ))}
             </select>
           </label>
+          <p className="settings-note">Avoid back-to-back is the default. One person still holds only one seat per day. Each coverage day of a weekly seat counts toward the monthly maximum. No limit is 0. A weekly seat does not use the daily rolling-week maximum.</p>
         </section>
 
         {assignmentIssues.length > 0 ? (
@@ -1148,26 +1531,29 @@ function App() {
                       </label>
                     </div>
                     {holiday ? <p className="holiday-label">{holiday.name}</p> : null}
-                    {scheduleDay.coverage ? scheduleData.positions.map((position) => (
+                    {scheduleDay.coverage ? sortedPositions(scheduleData.positions).map((position) => (
                       <div className="assignment-row" key={position.name}>
                         <span className="screen-only">{position.shortName}</span>
                         <select
                           className="screen-only"
                           value={scheduleDay.assignments[position.name] || ''}
+                          title={position.assignmentPeriod === 'weekly' ? 'Weekly seat: this choice fills every coverage day in the week.' : undefined}
                           onChange={(event) => changeAssignment(dateStr, position.name, event.target.value)}
                         >
                           <option value="">Open</option>
                           {scheduleData.operators
                             .filter((operator) =>
                               operator.callsign === scheduleDay.assignments[position.name] ||
-                              canAssignOperator(scheduleData, dateStr, position, operator.callsign).allowed,
+                              (position.assignmentPeriod === 'weekly'
+                                ? assignOperator(scheduleData, dateStr, position.name, operator.callsign).check.allowed
+                                : canAssignOperator(scheduleData, dateStr, position, operator.callsign).allowed),
                             )
                             .map((operator) => (
                               <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
                             ))}
                         </select>
                         <p className="print-only print-assignment-text">
-                          {position.shortName}: {scheduleDay.assignments[position.name] || 'Open'}
+                          {position.shortName}{position.channel ? ` ${position.channel}` : ''}: {scheduleDay.assignments[position.name] || 'Open'}
                         </p>
                       </div>
                     )) : null}
@@ -1220,7 +1606,7 @@ function App() {
                     checked={newOperatorAle}
                     onChange={(event) => setNewOperatorAle(event.target.checked)}
                   />
-                  ALE capable
+                  ALE qualified
                 </label>
 
                 <fieldset>
@@ -1242,24 +1628,48 @@ function App() {
                 <fieldset>
                   <legend>Allowed positions</legend>
                   <div className="chip-grid">
-                    {scheduleData.positions.map((position) => {
-                      const isExd = position.name === 'EXD'
-                      const checked = isExd ? newOperatorAle : newOperatorPermissions[position.name] !== false
+                    {sortedPositions(scheduleData.positions).map((position) => {
+                      const aleDuty = position.type === 'ale'
+                      const checked = aleDuty ? newOperatorAle : newOperatorPermissions[position.name] !== false
 
                       return (
                         <label className="chip-check" key={position.name}>
                           <input
                             type="checkbox"
                             checked={checked}
-                            disabled={isExd}
+                            disabled={aleDuty}
                             onChange={() => togglePositionPermission(position.name)}
                           />
-                          {position.shortName}
+                          {position.displayName}
                         </label>
                       )
                     })}
                   </div>
                 </fieldset>
+
+                <label>
+                  Max shifts per month
+                  <input
+                    type="number"
+                    min={0}
+                    max={MAX_SHIFTS_PER_MONTH_CAP}
+                    value={newOperatorMonthLimit}
+                    onChange={(event) => setNewOperatorMonthLimit(event.target.value)}
+                    placeholder={data.maxShiftsPerMonth === 0 ? 'No limit' : String(data.maxShiftsPerMonth)}
+                  />
+                </label>
+                <label>
+                  Max daily shifts per rolling week
+                  <input
+                    type="number"
+                    min={0}
+                    max={MAX_SHIFTS_PER_WEEK_CAP}
+                    value={newOperatorWeekLimit}
+                    onChange={(event) => setNewOperatorWeekLimit(event.target.value)}
+                    placeholder={data.maxShiftsPerWeek === 0 ? 'No limit' : String(data.maxShiftsPerWeek)}
+                  />
+                </label>
+                <p className="settings-note">Leave a limit blank to use the region default shown in the box. Enter 0 for no limit.</p>
 
                 <div className="form-actions">
                   <button type="submit" className="primary">{editingOperatorCallsign ? 'Save Operator' : 'Add Operator'}</button>
@@ -1274,6 +1684,11 @@ function App() {
                     <strong>{operator.callsign}</strong>
                     <span>{operator.ale ? 'ALE' : 'Standard'}</span>
                     <span>{getShiftCount(scheduleData.schedule, scheduleData.positions, operator.callsign, currentPrefix)} shifts</span>
+                    <span>
+                      {operator.maxShiftsPerMonth === undefined ? 'Region month' : operator.maxShiftsPerMonth === 0 ? 'No monthly limit' : `${operator.maxShiftsPerMonth}/month`}
+                      {' · '}
+                      {operator.maxShiftsPerWeek === undefined ? 'Region week' : operator.maxShiftsPerWeek === 0 ? 'No weekly limit' : `${operator.maxShiftsPerWeek}/week`}
+                    </span>
                     <button type="button" onClick={() => startEditOperator(operator.callsign)}>Edit</button>
                     <button type="button" className="danger" onClick={() => confirmDeleteOperator(operator.callsign)}>Delete</button>
                   </div>
@@ -1351,7 +1766,7 @@ function App() {
                 </label>
                 <div className="form-actions">
                   <button type="submit" className="primary">Add Holiday</button>
-                  <button type="button" onClick={() => void importFederalHolidays()}>Import Federal Holidays</button>
+                  <button type="button" onClick={() => void importFederalHolidays()}>US federal holidays (optional)</button>
                 </div>
               </form>
 
@@ -1384,23 +1799,59 @@ function App() {
                 }}
               >
                 <label>
-                  Short code
+                  Code
                   <input
                     type="text"
-                    maxLength={6}
+                    maxLength={12}
                     value={newPositionCode}
-                    onChange={(event) => setNewPositionCode(event.target.value)}
-                    placeholder="ALT"
+                    onChange={(event) => setNewPositionCode(event.target.value.toUpperCase())}
+                    placeholder="DW"
                   />
                 </label>
-                <label className="check-row">
+                <label>
+                  Name
                   <input
-                    type="checkbox"
-                    checked={newPositionRequiresAle}
-                    onChange={(event) => setNewPositionRequiresAle(event.target.checked)}
-                    disabled={editingPositionCode === 'EXD'}
+                    type="text"
+                    value={newPositionDisplayName}
+                    onChange={(event) => setNewPositionDisplayName(event.target.value)}
+                    placeholder="DeltaWhite"
                   />
-                  Requires ALE
+                </label>
+                <label>
+                  Type
+                  <select value={newPositionType} onChange={(event) => setNewPositionType(event.target.value as PositionType)}>
+                    <option value="fixed">Fixed-frequency / net</option>
+                    <option value="ale">ALE duty</option>
+                  </select>
+                </label>
+                <label>
+                  Assignment
+                  <select
+                    value={newPositionPeriod}
+                    onChange={(event) => setNewPositionPeriod(event.target.value === 'weekly' ? 'weekly' : 'daily')}
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </label>
+                <label>
+                  Channel name (optional)
+                  <input
+                    type="text"
+                    maxLength={4}
+                    value={newPositionChannel}
+                    onChange={(event) => setNewPositionChannel(event.target.value.toUpperCase())}
+                    placeholder="AB12"
+                  />
+                </label>
+                <label>
+                  Sort order
+                  <input
+                    type="number"
+                    value={newPositionSort}
+                    onChange={(event) => setNewPositionSort(event.target.value)}
+                    placeholder="1"
+                  />
                 </label>
                 <div className="form-actions">
                   <button type="submit" className="primary">{editingPositionCode ? 'Save Position' : 'Add Position'}</button>
@@ -1408,10 +1859,12 @@ function App() {
                 </div>
               </form>
               <div className="table-list">
-                {scheduleData.positions.map((position) => (
+                {sortedPositions(scheduleData.positions).map((position) => (
                   <div className="table-row" key={position.name}>
-                    <strong>{position.shortName}</strong>
-                    <span>{position.requiresALE ? 'Requires ALE' : 'No ALE required'}</span>
+                    <strong>{position.name}</strong>
+                    <span>{position.displayName}{position.channel ? ` · ${position.channel}` : ''}</span>
+                    <span>{position.type === 'ale' ? 'ALE duty' : 'Fixed-frequency / net'}</span>
+                    <span>{position.assignmentPeriod === 'weekly' ? 'Weekly' : 'Daily'}</span>
                     <button type="button" onClick={() => startEditPosition(position.name)}>Edit</button>
                     <button type="button" className="danger" onClick={() => confirmRemovePosition(position.name)}>Delete</button>
                   </div>
@@ -1446,6 +1899,44 @@ function App() {
                 setAvailableUpdate(null)
               }}
             />
+          ) : null}
+          {calendarExportOpen ? (
+            <div className="confirm-backdrop" role="presentation">
+              <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-export-title">
+                <h3 id="calendar-export-title">Export to calendar</h3>
+                <p>The file lists every assigned coverage day. A weekly seat is one all-day event per day. Import it into its own calendar.</p>
+                <label>
+                  Scope
+                  <select
+                    value={calendarExportMonthOnly ? 'month' : 'all'}
+                    onChange={(event) => {
+                      setCalendarExportMonthOnly(event.target.value === 'month')
+                      setCalendarExportMessage(null)
+                    }}
+                  >
+                    <option value="all">Full calendar</option>
+                    <option value="month">This month only</option>
+                  </select>
+                </label>
+                <label>
+                  Operator
+                  <select value={calendarExportOperator} onChange={(event) => {
+                    setCalendarExportOperator(event.target.value)
+                    setCalendarExportMessage(null)
+                  }}>
+                    <option value="">All operators</option>
+                    {data.operators.map((operator) => (
+                      <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
+                    ))}
+                  </select>
+                </label>
+                {calendarExportMessage ? <p className="setup-error" role="alert">{calendarExportMessage}</p> : null}
+                <div className="confirm-actions">
+                  <button type="button" onClick={() => setCalendarExportOpen(false)}>Cancel</button>
+                  <button type="button" className="primary" onClick={() => void exportCalendar()}>Export</button>
+                </div>
+              </section>
+            </div>
           ) : null}
           {confirmAction ? (
             <div className="confirm-backdrop" role="presentation">

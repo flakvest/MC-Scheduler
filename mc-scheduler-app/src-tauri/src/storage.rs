@@ -13,26 +13,17 @@ const DATA_FILE_NAME: &str = "scheduler.json";
 const BACKUP_DIR_NAME: &str = "backups";
 const YEARS_DIR_NAME: &str = "years";
 const BACKUP_KEEP_COUNT: usize = 5;
+const PREMIGRATION_BACKUP_NAME: &str = "premigration-v1.json";
 const DEFAULT_SCHEDULER_JSON: &str = r#"{
-  "version": 1,
+  "version": 2,
+  "regionName": "",
+  "setupComplete": false,
+  "backToBackPolicy": "avoid",
+  "weekStartsOn": 1,
+  "maxShiftsPerMonth": 5,
+  "maxShiftsPerWeek": 2,
   "operators": [],
-  "positions": [
-    {
-      "name": "EXD",
-      "shortName": "EXD",
-      "requiresALE": true
-    },
-    {
-      "name": "DW",
-      "shortName": "DW",
-      "requiresALE": false
-    },
-    {
-      "name": "DR",
-      "shortName": "DR",
-      "requiresALE": false
-    }
-  ],
+  "positions": [],
   "vacations": {},
   "holidays": [],
   "schedule": {}
@@ -241,6 +232,30 @@ fn schedule_file_year(path: &Path) -> Option<String> {
     }
 }
 
+fn is_rotating_backup(name: &str) -> bool {
+    name.starts_with("scheduler-") && name.ends_with(".json")
+}
+
+fn stored_version(contents: &str) -> Option<i64> {
+    serde_json::from_str::<Value>(contents)
+        .ok()
+        .and_then(|value| value.get("version")?.as_i64())
+}
+
+fn keep_premigration_backup(contents: &str, backup_dir: &Path) -> Result<(), String> {
+    let path = backup_dir.join(PREMIGRATION_BACKUP_NAME);
+    if path.exists() || stored_version(contents) == Some(2) {
+        return Ok(());
+    }
+
+    fs::write(&path, contents).map_err(|err| {
+        format!(
+            "Unable to keep the pre-upgrade backup at {}: {err}",
+            path.display()
+        )
+    })
+}
+
 fn prune_backups(backup_dir: &Path) -> Result<(), String> {
     let mut backups = Vec::new();
 
@@ -253,7 +268,7 @@ fn prune_backups(backup_dir: &Path) -> Result<(), String> {
         let is_backup = path
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| name.starts_with("scheduler-") && name.ends_with(".json"))
+            .map(is_rotating_backup)
             .unwrap_or(false);
 
         if is_backup {
@@ -332,6 +347,7 @@ pub fn save_scheduler_data(app: AppHandle<Wry>, json: String) -> Result<(), Stri
 
     if data_file.exists() || years_dir.exists() {
         let current_json = load_scheduler_data(app.clone())?;
+        keep_premigration_backup(&current_json, &backup_dir)?;
         create_backup(&current_json, &backup_dir)?;
     }
 
@@ -447,6 +463,84 @@ mod tests {
         assert!(!data.contains_key("schedule"));
         assert!(data.contains_key("operators"));
         assert!(data.contains_key("vacations"));
+    }
+
+    #[test]
+    fn rotating_cleanup_keeps_the_premigration_backup() {
+        let dir = std::env::temp_dir().join(format!(
+            "mc-scheduler-backups-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("temp backup dir");
+
+        for index in 0..7 {
+            fs::write(dir.join(format!("scheduler-{index:020}.json")), "{}").expect("rotating backup");
+        }
+        fs::write(dir.join(PREMIGRATION_BACKUP_NAME), "old").expect("premigration backup");
+
+        prune_backups(&dir).expect("prune");
+
+        let rotating = fs::read_dir(&dir)
+            .expect("read backups")
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .ok()
+                    .and_then(|item| item.file_name().to_str().map(is_rotating_backup))
+                    .unwrap_or(false)
+            })
+            .count();
+
+        assert_eq!(rotating, BACKUP_KEEP_COUNT);
+        assert_eq!(
+            fs::read_to_string(dir.join(PREMIGRATION_BACKUP_NAME)).expect("premigration remains"),
+            "old"
+        );
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn premigration_backup_is_written_once_for_an_older_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "mc-scheduler-premigration-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("temp backup dir");
+
+        keep_premigration_backup(r#"{"version":1}"#, &dir).expect("write v1");
+        assert_eq!(
+            fs::read_to_string(dir.join(PREMIGRATION_BACKUP_NAME)).expect("saved"),
+            r#"{"version":1}"#
+        );
+
+        keep_premigration_backup(r#"{"version":2}"#, &dir).expect("do not replace");
+        assert_eq!(
+            fs::read_to_string(dir.join(PREMIGRATION_BACKUP_NAME)).expect("unchanged"),
+            r#"{"version":1}"#
+        );
+
+        let current = std::env::temp_dir().join(format!(
+            "mc-scheduler-current-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&current).expect("current dir");
+        keep_premigration_backup(r#"{"version":2}"#, &current).expect("skip v2");
+        assert!(!current.join(PREMIGRATION_BACKUP_NAME).exists());
+
+        fs::remove_dir_all(&dir).expect("cleanup");
+        fs::remove_dir_all(&current).expect("cleanup current");
     }
 
     #[test]

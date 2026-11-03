@@ -1,3 +1,4 @@
+import { positionFromRaw } from './schedulerMigration'
 import {
   type LegacyBackupData,
   type Operator,
@@ -6,7 +7,7 @@ import {
   type SchedulerData,
   type VacationMap,
   type Weekday,
-  defaultPositions,
+  region4ExamplePositions,
 } from './schedulerTypes'
 
 type LegacyOperator = {
@@ -37,25 +38,26 @@ const normalizeWeekdays = (value: unknown): Weekday[] => {
 }
 
 const normalizePositions = (value: unknown): Position[] => {
-  if (!Array.isArray(value)) return defaultPositions
+  if (!Array.isArray(value)) return region4ExamplePositions()
 
   const positions = value
     .filter(isRecord)
-    .map((position): Position | null => {
+    .map((position, index): Position | null => {
       const legacy = position as LegacyPosition
-      const shortName = normalizeCode(legacy.shortName || legacy.name)
+      const rawName = normalizeCode(legacy.shortName || legacy.name)
+      const name = rawName === 'BIGTOPDELTA' ? 'EXD' : rawName
+      if (!name) return null
 
-      if (!shortName) return null
-
-      return {
-        name: shortName,
-        shortName,
-        requiresALE: legacy.requiresALE === true,
-      }
+      return positionFromRaw({
+        ...legacy,
+        name,
+        shortName: name,
+        requiresALE: legacy.requiresALE === true || name === 'EXD',
+      }, index)
     })
     .filter((position): position is Position => position !== null)
 
-  return positions.length > 0 ? positions : defaultPositions
+  return positions.length > 0 ? positions : region4ExamplePositions()
 }
 
 const normalizeOperators = (value: unknown, positions: Position[]): Operator[] => {
@@ -69,10 +71,10 @@ const normalizeOperators = (value: unknown, positions: Position[]): Operator[] =
 
       if (!callsign) return null
 
-      const ale = legacy.ale === true
+      const ale = legacy.ale === true || legacy.canBIGTOPDELTA === true || legacy.canEXD === true
       const positionPermissions = positions.reduce<Record<string, boolean>>((permissions, position) => {
         const legacyKey = `can${position.name}`
-        permissions[position.name] = position.name === 'EXD' ? ale : legacy[legacyKey] !== false
+        permissions[position.name] = position.type === 'ale' ? ale : legacy[legacyKey] !== false
         return permissions
       }, {})
 
@@ -113,6 +115,7 @@ const normalizeSchedule = (value: unknown, positions: Position[]): Schedule => {
 
     const assignments = positions.reduce<Record<string, string>>((dayAssignments, position) => {
       const assigned = legacyDay[position.name.toLowerCase()]
+        ?? (position.name === 'EXD' ? legacyDay.bigtopdelta : undefined)
       if (typeof assigned === 'string' && assigned.trim()) {
         dayAssignments[position.name] = normalizeCode(assigned)
       }
@@ -132,7 +135,13 @@ export function importLegacyBackup(backup: LegacyBackupData): SchedulerData {
   const positions = normalizePositions(backup.positions)
 
   return {
-    version: 1,
+    version: 2,
+    regionName: '',
+    setupComplete: true,
+    backToBackPolicy: 'avoid',
+    weekStartsOn: 1,
+    maxShiftsPerMonth: 5,
+    maxShiftsPerWeek: 2,
     operators: normalizeOperators(backup.operators, positions),
     positions,
     vacations: normalizeVacations(backup.vacations),

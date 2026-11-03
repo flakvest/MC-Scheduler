@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { calendarExportFilename, generateScheduleIcs } from './domain/calendarExport'
+import { calendarExportFilename, calendarSavedMessage, countCalendarAssignments, generateScheduleIcs } from './domain/calendarExport'
 import { backupToJson, fullBackupToJson, parseBackupJson, readSmartAssignSettingsFromBackup } from './domain/backupFiles'
 import {
   describeBackupLocation,
@@ -148,6 +148,7 @@ function App() {
   const [calendarExportOpen, setCalendarExportOpen] = useState(false)
   const [calendarExportMonthOnly, setCalendarExportMonthOnly] = useState(false)
   const [calendarExportOperator, setCalendarExportOperator] = useState('')
+  const [calendarExportMessage, setCalendarExportMessage] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const finishSetupRef = useRef<HTMLParagraphElement>(null)
   const skipNextSaveRef = useRef(true)
@@ -798,7 +799,13 @@ function App() {
     setStatusMessage(opened ? `Opened ${storageInfo.location}.` : 'Could not open the data folder.')
   }
 
-  const saveTextFile = async (contents: string, filename: string, mimeType: string, status: string) => {
+  const saveTextFile = async (
+    contents: string,
+    filename: string,
+    mimeType: string,
+    status: string,
+    filters?: { name: string, extensions: string[] }[],
+  ) => {
     const isTauri = isDesktopApp(window)
 
     if (isTauri) {
@@ -806,7 +813,7 @@ function App() {
         import('@tauri-apps/plugin-dialog'),
         import('@tauri-apps/plugin-fs'),
       ])
-      const path = await save({ defaultPath: filename })
+      const path = await save({ defaultPath: filename, filters })
 
       if (!path) {
         setStatusMessage('Save canceled.')
@@ -886,21 +893,31 @@ function App() {
   const openCalendarExport = () => {
     setCalendarExportMonthOnly(false)
     setCalendarExportOperator('')
+    setCalendarExportMessage(null)
     setCalendarExportOpen(true)
   }
 
   const exportCalendar = async () => {
-    const ics = generateScheduleIcs(data, {
+    const exportOptions = {
       month: calendarExportMonthOnly ? currentPrefix : undefined,
       operator: calendarExportOperator || undefined,
-    })
+    }
+    if (countCalendarAssignments(data, exportOptions) === 0) {
+      setCalendarExportMessage('There are no assigned coverage days to export.')
+      return
+    }
+
+    const ics = generateScheduleIcs(data, exportOptions)
     const filename = calendarExportFilename(data.regionName)
+    setCalendarExportOpen(false)
+    setCalendarExportMessage(null)
 
     try {
-      const saved = await saveTextFile(ics, filename, 'text/calendar', '')
+      const saved = await saveTextFile(ics, filename, 'text/calendar', '', [
+        { name: 'iCalendar', extensions: ['ics'] },
+      ])
       if (!saved) return
-      setCalendarExportOpen(false)
-      setStatusMessage(`Calendar file saved: ${filename}.`)
+      setStatusMessage(calendarSavedMessage(saved))
     } catch {
       setStatusMessage('Calendar export failed.')
     }
@@ -1892,7 +1909,10 @@ function App() {
                   Scope
                   <select
                     value={calendarExportMonthOnly ? 'month' : 'all'}
-                    onChange={(event) => setCalendarExportMonthOnly(event.target.value === 'month')}
+                    onChange={(event) => {
+                      setCalendarExportMonthOnly(event.target.value === 'month')
+                      setCalendarExportMessage(null)
+                    }}
                   >
                     <option value="all">Full calendar</option>
                     <option value="month">This month only</option>
@@ -1900,13 +1920,17 @@ function App() {
                 </label>
                 <label>
                   Operator
-                  <select value={calendarExportOperator} onChange={(event) => setCalendarExportOperator(event.target.value)}>
+                  <select value={calendarExportOperator} onChange={(event) => {
+                    setCalendarExportOperator(event.target.value)
+                    setCalendarExportMessage(null)
+                  }}>
                     <option value="">All operators</option>
                     {data.operators.map((operator) => (
                       <option value={operator.callsign} key={operator.callsign}>{operator.callsign}</option>
                     ))}
                   </select>
                 </label>
+                {calendarExportMessage ? <p className="setup-error" role="alert">{calendarExportMessage}</p> : null}
                 <div className="confirm-actions">
                   <button type="button" onClick={() => setCalendarExportOpen(false)}>Cancel</button>
                   <button type="button" className="primary" onClick={() => void exportCalendar()}>Export</button>

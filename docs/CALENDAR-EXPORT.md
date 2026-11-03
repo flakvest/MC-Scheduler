@@ -8,7 +8,9 @@ The default is the full calendar: every assigned day in the file. In the export 
 
 The event title is the position code, a dash, and the operator callsign. The description includes the position name, the channel when one is set, and the region name. The calendar name is the region name followed by `MC Schedule`.
 
-The suggested file name looks like `army-mars-region-4-schedule-2026-11-03.ics`.
+The suggested file name looks like `army-mars-region-4-schedule-2026-11-03.ics`. The save window lists iCalendar files. After you pick a place, the status line shows that path, or the file name if the browser saved it.
+
+If the chosen month or operator has no assigned coverage days, the app tells you in the export window and does not write a file.
 
 ## Import into Google Calendar
 

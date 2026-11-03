@@ -1,6 +1,6 @@
 import ICAL from 'ical.js'
 import { describe, expect, it } from 'vitest'
-import { calendarExportFilename, generateScheduleIcs } from './calendarExport'
+import { calendarExportFilename, calendarSavedMessage, countCalendarAssignments, generateScheduleIcs } from './calendarExport'
 import { emptySchedulerData, region4ExamplePositions, type SchedulerData } from './schedulerTypes'
 
 const now = new Date(Date.UTC(2026, 10, 3, 1, 6, 0))
@@ -82,6 +82,21 @@ describe('calendar export', () => {
     expect(new Set(events.map((event) => event.uid)).size).toBe(5)
   })
 
+  it('folds before a multi-byte character that starts on the 75th octet', () => {
+    const region = `${'A'.repeat(61)}é`
+    const ics = generateScheduleIcs(data({ regionName: region }), { now })
+    const lines = ics.split('\r\n')
+    const nameIndex = lines.findIndex((line) => line.startsWith('X-WR-CALNAME:'))
+
+    lines.forEach((line) => {
+      expect(encoder.encode(line).length).toBeLessThanOrEqual(75)
+    })
+    expect(encoder.encode(lines[nameIndex]).length).toBe(74)
+    expect(lines[nameIndex]).toBe(`X-WR-CALNAME:${'A'.repeat(61)}`)
+    expect(lines[nameIndex + 1].startsWith(' é')).toBe(true)
+    expect(new ICAL.Component(ICAL.parse(ics)).getFirstPropertyValue('x-wr-calname')).toBe(`${'A'.repeat(61)}é MC Schedule`)
+  })
+
   it('escapes text and folds lines at 75 octets', () => {
     const region = `North, East; West\\Base\nDesk ${'A'.repeat(80)}`
     const ics = generateScheduleIcs(data({
@@ -115,6 +130,18 @@ describe('calendar export', () => {
     expect(eventsOf(generateScheduleIcs(schedule, { now, operator: 'bravo' })).map((event) => event.summary)).toEqual([
       'DW – BRAVO',
     ])
+  })
+
+  it('counts assigned days and reports the path the user chose', () => {
+    expect(countCalendarAssignments(data())).toBe(0)
+    expect(countCalendarAssignments(data({
+      schedule: { '2026-04-02': { coverage: false, assignments: { EXD: 'ALPHA' } } },
+    }))).toBe(0)
+    expect(countCalendarAssignments(data({
+      schedule: { '2026-04-01': { coverage: true, assignments: { EXD: 'ALPHA', DW: '' } } },
+    }))).toBe(1)
+    expect(calendarSavedMessage('C:\\Users\\Shaun\\Region 4.ics')).toBe('Calendar file saved to C:\\Users\\Shaun\\Region 4.ics.')
+    expect(calendarSavedMessage('army-mars-region-4-schedule-2026-11-03.ics')).toBe('Calendar file saved as army-mars-region-4-schedule-2026-11-03.ics.')
   })
 
   it('names the file from the region and the export date', () => {

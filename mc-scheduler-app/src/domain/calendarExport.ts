@@ -79,11 +79,13 @@ export function calendarExportFilename(regionName: string, now = new Date()) {
   return `${slug}-schedule-${year}-${month}-${day}.ics`
 }
 
-export function generateScheduleIcs(data: SchedulerData, options: CalendarExportOptions = {}) {
-  const now = options.now ?? new Date()
+function eachAssignment(
+  data: SchedulerData,
+  options: CalendarExportOptions,
+  visit: (date: IsoDate, code: string, callsign: string) => void,
+) {
   const operatorFilter = options.operator?.trim().toUpperCase() ?? ''
   const positions = new Map(data.positions.map((position) => [position.name, position]))
-  const events: string[] = []
 
   Object.keys(data.schedule)
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
@@ -107,30 +109,52 @@ export function generateScheduleIcs(data: SchedulerData, options: CalendarExport
         const callsign = day.assignments[code]?.trim()
         if (!callsign) return
         if (operatorFilter && callsign.toUpperCase() !== operatorFilter) return
-
-        const position = positions.get(code)
-        const positionName = position?.displayName || code
-        const channel = position?.channel?.trim() ?? ''
-        const region = data.regionName.trim()
-        const description = [
-          `Position: ${positionName}`,
-          channel ? `Channel: ${channel}` : '',
-          region ? `Region: ${region}` : '',
-        ].filter(Boolean).join('\n')
-        const nextDay = addDays(date, 1)
-        const lines = [
-          'BEGIN:VEVENT',
-          property('UID', `${date}-${uidToken(code)}-${uidToken(callsign)}@${UID_DOMAIN}`),
-          property('DTSTAMP', stamp(now)),
-          `DTSTART;VALUE=DATE:${compactDate(date)}`,
-          `DTEND;VALUE=DATE:${compactDate(nextDay)}`,
-          property('SUMMARY', `${code} – ${callsign}`),
-          property('DESCRIPTION', description),
-          'END:VEVENT',
-        ]
-        events.push(lines.join('\r\n'))
+        visit(date, code, callsign)
       })
     })
+}
+
+export function countCalendarAssignments(data: SchedulerData, options: CalendarExportOptions = {}) {
+  let count = 0
+  eachAssignment(data, options, () => {
+    count += 1
+  })
+  return count
+}
+
+export function calendarSavedMessage(saved: string) {
+  if (saved.includes('/') || saved.includes('\\')) return `Calendar file saved to ${saved}.`
+  return `Calendar file saved as ${saved}.`
+}
+
+export function generateScheduleIcs(data: SchedulerData, options: CalendarExportOptions = {}) {
+  const now = options.now ?? new Date()
+  const positions = new Map(data.positions.map((position) => [position.name, position]))
+  const events: string[] = []
+
+  eachAssignment(data, options, (date, code, callsign) => {
+    const position = positions.get(code)
+    const positionName = position?.displayName || code
+    const channel = position?.channel?.trim() ?? ''
+    const region = data.regionName.trim()
+    const description = [
+      `Position: ${positionName}`,
+      channel ? `Channel: ${channel}` : '',
+      region ? `Region: ${region}` : '',
+    ].filter(Boolean).join('\n')
+    const nextDay = addDays(date, 1)
+    const lines = [
+      'BEGIN:VEVENT',
+      property('UID', `${date}-${uidToken(code)}-${uidToken(callsign)}@${UID_DOMAIN}`),
+      property('DTSTAMP', stamp(now)),
+      `DTSTART;VALUE=DATE:${compactDate(date)}`,
+      `DTEND;VALUE=DATE:${compactDate(nextDay)}`,
+      property('SUMMARY', `${code} – ${callsign}`),
+      property('DESCRIPTION', description),
+      'END:VEVENT',
+    ]
+    events.push(lines.join('\r\n'))
+  })
 
   const calendar = [
     'BEGIN:VCALENDAR',
